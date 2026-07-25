@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from anonymizer import save_anonymized_dicom
 from dicom_loader import load_dicom
 from windowing import apply_window
 
@@ -28,20 +29,31 @@ class DicomViewer(QMainWindow):
 
         self.dataset = None
         self.pixel_array = None
+        self.current_file_path = None
 
         self.setWindowTitle("PACS DICOM Toolkit")
         self.resize(900, 700)
 
+        # DICOM 열기 버튼
         self.open_button = QPushButton("Open DICOM")
         self.open_button.clicked.connect(self.open_dicom)
 
+        # 익명화 저장 버튼
+        self.anonymize_button = QPushButton("Save Anonymized DICOM")
+        self.anonymize_button.setEnabled(False)
+        self.anonymize_button.clicked.connect(self.save_anonymized)
+
+        # 영상 표시 영역
         self.image_label = QLabel("Open a DICOM file")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setMinimumSize(512, 512)
         self.image_label.setStyleSheet(
-            "background-color: black; color: white; border: 1px solid gray;"
+            "background-color: black;"
+            "color: white;"
+            "border: 1px solid gray;"
         )
 
+        # 메타데이터 표시
         self.patient_id_label = QLabel("-")
         self.patient_name_label = QLabel("-")
         self.modality_label = QLabel("-")
@@ -55,11 +67,13 @@ class DicomViewer(QMainWindow):
         metadata_layout.addRow("Image Size:", self.image_size_label)
         metadata_layout.addRow("Pixel Range:", self.pixel_range_label)
 
+        # Window Center
         self.window_center_spin = QSpinBox()
         self.window_center_spin.setRange(-65535, 65535)
         self.window_center_spin.setValue(32768)
         self.window_center_spin.valueChanged.connect(self.update_image)
 
+        # Window Width
         self.window_width_spin = QSpinBox()
         self.window_width_spin.setRange(1, 131070)
         self.window_width_spin.setValue(65536)
@@ -69,13 +83,16 @@ class DicomViewer(QMainWindow):
         window_layout.addRow("Window Center:", self.window_center_spin)
         window_layout.addRow("Window Width:", self.window_width_spin)
 
+        # 오른쪽 제어 영역
         control_layout = QVBoxLayout()
         control_layout.addWidget(self.open_button)
+        control_layout.addWidget(self.anonymize_button)
         control_layout.addLayout(metadata_layout)
         control_layout.addSpacing(20)
         control_layout.addLayout(window_layout)
         control_layout.addStretch()
 
+        # 전체 화면 구성
         main_layout = QHBoxLayout()
         main_layout.addWidget(self.image_label, 1)
         main_layout.addLayout(control_layout)
@@ -85,6 +102,7 @@ class DicomViewer(QMainWindow):
         self.setCentralWidget(container)
 
     def open_dicom(self):
+        """DICOM 파일을 선택하고 화면에 표시합니다."""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Open DICOM File",
@@ -96,54 +114,119 @@ class DicomViewer(QMainWindow):
             return
 
         try:
-            self.dataset, self.pixel_array = load_dicom(file_path)
+            dataset, pixel_array = load_dicom(file_path)
+
+            self.dataset = dataset
+            self.pixel_array = pixel_array
+            self.current_file_path = file_path
+
+            self.anonymize_button.setEnabled(True)
+
             self.update_metadata()
             self.set_initial_window()
             self.update_image()
+
         except Exception as error:
-            QMessageBox.critical(self, "DICOM Load Error", str(error))
+            QMessageBox.critical(
+                self,
+                "DICOM Load Error",
+                str(error),
+            )
 
     def update_metadata(self):
+        """현재 DICOM의 주요 정보를 화면에 표시합니다."""
+        if self.dataset is None or self.pixel_array is None:
+            return
+
         rows, columns = self.pixel_array.shape
 
-        self.patient_id_label.setText(
-            str(getattr(self.dataset, "PatientID", "Unknown"))
+        patient_id = getattr(
+            self.dataset,
+            "PatientID",
+            "Unknown",
         )
-        self.patient_name_label.setText(
-            str(getattr(self.dataset, "PatientName", "Unknown"))
+        patient_name = getattr(
+            self.dataset,
+            "PatientName",
+            "Unknown",
         )
-        self.modality_label.setText(
-            str(getattr(self.dataset, "Modality", "Unknown"))
+        modality = getattr(
+            self.dataset,
+            "Modality",
+            "Unknown",
         )
+
+        self.patient_id_label.setText(str(patient_id))
+        self.patient_name_label.setText(str(patient_name))
+        self.modality_label.setText(str(modality))
         self.image_size_label.setText(f"{columns} x {rows}")
         self.pixel_range_label.setText(
-            f"{self.pixel_array.min():.0f} ~ {self.pixel_array.max():.0f}"
+            f"{self.pixel_array.min():.0f} ~ "
+            f"{self.pixel_array.max():.0f}"
         )
 
     def set_initial_window(self):
+        """DICOM 또는 픽셀 범위를 이용해 초기 Window 값을 설정합니다."""
+        if self.pixel_array is None:
+            return
+
         pixel_min = float(self.pixel_array.min())
         pixel_max = float(self.pixel_array.max())
 
         default_center = (pixel_min + pixel_max) / 2
         default_width = max(pixel_max - pixel_min, 1)
 
-        window_center = float(
-            getattr(self.dataset, "WindowCenter", default_center)
+        window_center = self.get_numeric_value(
+            getattr(
+                self.dataset,
+                "WindowCenter",
+                default_center,
+            ),
+            default_center,
         )
-        window_width = float(
-            getattr(self.dataset, "WindowWidth", default_width)
+
+        window_width = self.get_numeric_value(
+            getattr(
+                self.dataset,
+                "WindowWidth",
+                default_width,
+            ),
+            default_width,
         )
 
         self.window_center_spin.blockSignals(True)
         self.window_width_spin.blockSignals(True)
 
-        self.window_center_spin.setValue(round(window_center))
-        self.window_width_spin.setValue(max(round(window_width), 1))
+        self.window_center_spin.setValue(
+            round(window_center)
+        )
+        self.window_width_spin.setValue(
+            max(round(window_width), 1)
+        )
 
         self.window_center_spin.blockSignals(False)
         self.window_width_spin.blockSignals(False)
 
+    @staticmethod
+    def get_numeric_value(value, default):
+        """단일 값 또는 여러 DICOM 값 중 첫 번째 값을 숫자로 변환합니다."""
+        try:
+            if isinstance(value, (list, tuple)):
+                value = value[0]
+
+            if hasattr(value, "__len__") and not isinstance(
+                value,
+                (str, bytes),
+            ):
+                value = value[0]
+
+            return float(value)
+
+        except (TypeError, ValueError, IndexError):
+            return float(default)
+
     def update_image(self):
+        """Window Center/Width를 적용하여 영상을 갱신합니다."""
         if self.pixel_array is None:
             return
 
@@ -173,11 +256,68 @@ class DicomViewer(QMainWindow):
 
         self.image_label.setPixmap(pixmap)
 
+    def save_anonymized(self):
+        """현재 DICOM을 익명화하여 새 파일로 저장합니다."""
+        if not self.current_file_path:
+            QMessageBox.warning(
+                self,
+                "No DICOM File",
+                "Please open a DICOM file first.",
+            )
+            return
+
+        source_path = Path(self.current_file_path)
+
+        default_output_path = source_path.with_name(
+            f"{source_path.stem}_anonymized{source_path.suffix}"
+        )
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Anonymized DICOM",
+            str(default_output_path),
+            "DICOM Files (*.dcm);;All Files (*)",
+        )
+
+        if not output_path:
+            return
+
+        if not Path(output_path).suffix:
+            output_path += ".dcm"
+
+        try:
+            saved_path = save_anonymized_dicom(
+                self.current_file_path,
+                output_path,
+            )
+
+            QMessageBox.information(
+                self,
+                "Anonymization Complete",
+                f"Anonymized DICOM saved:\n{saved_path}",
+            )
+
+        except Exception as error:
+            QMessageBox.critical(
+                self,
+                "Anonymization Error",
+                str(error),
+            )
+
+    def resizeEvent(self, event):
+        """창 크기가 변경되면 영상도 다시 맞춥니다."""
+        super().resizeEvent(event)
+
+        if self.pixel_array is not None:
+            self.update_image()
+
 
 def main():
     app = QApplication(sys.argv)
+
     viewer = DicomViewer()
     viewer.show()
+
     sys.exit(app.exec_())
 
 
