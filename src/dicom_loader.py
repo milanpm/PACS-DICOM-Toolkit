@@ -20,3 +20,18 @@ def load_dicom(file_path: str) -> tuple[Dataset, np.ndarray]:
     pixel_array = dataset.pixel_array.astype(np.float32)
 
     return dataset, pixel_array
+
+
+def extract_metadata(dataset: Dataset) -> dict[str, str]:
+    """DICOM 데이터셋에서 주요 메타데이터를 추출합니다."""
+    return {
+        "Patient Name": str(dataset.get("PatientName", "N/A")),
+        "Patient ID": str(dataset.get("PatientID", "N/A")),
+        "Study Date": str(dataset.get("StudyDate", "N/A")),
+        "Modality": str(dataset.get("Modality", "N/A")),
+        "Rows": str(dataset.get("Rows", "N/A")),
+        "Columns": str(dataset.get("Columns", "N/A")),
+        "Window Center": str(dataset.get("WindowCenter", "N/A")),
+        "Window Width": str(dataset.get("WindowWidth", "N/A")),
+        "Pixel Spacing": str(dataset.get("PixelSpacing", "N/A")),
+    }

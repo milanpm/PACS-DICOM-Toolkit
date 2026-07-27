@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
 )
 
 from anonymizer import save_anonymized_dicom
-from dicom_loader import load_dicom
+from dicom_loader import extract_metadata, load_dicom
 from windowing import apply_window
 
 
@@ -56,15 +56,19 @@ class DicomViewer(QMainWindow):
         # 메타데이터 표시
         self.patient_id_label = QLabel("-")
         self.patient_name_label = QLabel("-")
+        self.study_date_label = QLabel("-")
         self.modality_label = QLabel("-")
         self.image_size_label = QLabel("-")
+        self.pixel_spacing_label = QLabel("-")
         self.pixel_range_label = QLabel("-")
 
         metadata_layout = QFormLayout()
         metadata_layout.addRow("Patient ID:", self.patient_id_label)
         metadata_layout.addRow("Patient Name:", self.patient_name_label)
+        metadata_layout.addRow("Study Date:", self.study_date_label)
         metadata_layout.addRow("Modality:", self.modality_label)
         metadata_layout.addRow("Image Size:", self.image_size_label)
+        metadata_layout.addRow("Pixel Spacing:", self.pixel_spacing_label)
         metadata_layout.addRow("Pixel Range:", self.pixel_range_label)
 
         # Window Center
@@ -138,28 +142,16 @@ class DicomViewer(QMainWindow):
         if self.dataset is None or self.pixel_array is None:
             return
 
-        rows, columns = self.pixel_array.shape
+        metadata = extract_metadata(self.dataset)
 
-        patient_id = getattr(
-            self.dataset,
-            "PatientID",
-            "Unknown",
+        self.patient_id_label.setText(metadata["Patient ID"])
+        self.patient_name_label.setText(metadata["Patient Name"])
+        self.study_date_label.setText(metadata["Study Date"])
+        self.modality_label.setText(metadata["Modality"])
+        self.image_size_label.setText(
+            f'{metadata["Columns"]} x {metadata["Rows"]}'
         )
-        patient_name = getattr(
-            self.dataset,
-            "PatientName",
-            "Unknown",
-        )
-        modality = getattr(
-            self.dataset,
-            "Modality",
-            "Unknown",
-        )
-
-        self.patient_id_label.setText(str(patient_id))
-        self.patient_name_label.setText(str(patient_name))
-        self.modality_label.setText(str(modality))
-        self.image_size_label.setText(f"{columns} x {rows}")
+        self.pixel_spacing_label.setText(metadata["Pixel Spacing"])
         self.pixel_range_label.setText(
             f"{self.pixel_array.min():.0f} ~ "
             f"{self.pixel_array.max():.0f}"
