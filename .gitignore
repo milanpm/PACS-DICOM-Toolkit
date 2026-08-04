@@ -16,3 +16,4 @@ Thumbs.db
 # Temporary files
 *.log
 *.tmp
+samples/*_anonymized.dcm
