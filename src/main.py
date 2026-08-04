@@ -10,10 +10,12 @@ from PyQt5.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -71,6 +73,21 @@ class DicomViewer(QMainWindow):
         metadata_layout.addRow("Pixel Spacing:", self.pixel_spacing_label)
         metadata_layout.addRow("Pixel Range:", self.pixel_range_label)
 
+        # 메타데이터 검색
+        self.metadata_search_input = QLineEdit()
+        self.metadata_search_input.setPlaceholderText(
+            "Enter tag name or keyword"
+        )
+
+        self.metadata_search_button = QPushButton("Search")
+        self.metadata_search_button.clicked.connect(
+            self.search_metadata
+        )
+
+        self.metadata_search_result = QTextEdit()
+        self.metadata_search_result.setReadOnly(True)
+        self.metadata_search_result.setMinimumHeight(120)
+
         # Window Center
         self.window_center_spin = QSpinBox()
         self.window_center_spin.setRange(-65535, 65535)
@@ -92,6 +109,14 @@ class DicomViewer(QMainWindow):
         control_layout.addWidget(self.open_button)
         control_layout.addWidget(self.anonymize_button)
         control_layout.addLayout(metadata_layout)
+        control_layout.addWidget(QLabel("Metadata Search"))
+
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(self.metadata_search_input)
+        search_layout.addWidget(self.metadata_search_button)
+
+        control_layout.addLayout(search_layout)
+        control_layout.addWidget(self.metadata_search_result)
         control_layout.addSpacing(20)
         control_layout.addLayout(window_layout)
         control_layout.addStretch()
@@ -156,6 +181,40 @@ class DicomViewer(QMainWindow):
             f"{self.pixel_array.min():.0f} ~ "
             f"{self.pixel_array.max():.0f}"
         )
+
+    def search_metadata(self):
+        """태그 이름 또는 키워드로 DICOM 메타데이터를 검색합니다."""
+        if self.dataset is None:
+            self.metadata_search_result.setText(
+                "Please open a DICOM file first."
+            )
+            return
+
+        keyword = self.metadata_search_input.text().strip().lower()
+
+        if not keyword:
+            self.metadata_search_result.setText(
+                "Please enter a search keyword."
+            )
+            return
+
+        results = []
+
+        for element in self.dataset:
+            tag_name = element.name.lower()
+            tag_keyword = element.keyword.lower()
+
+            if keyword in tag_name or keyword in tag_keyword:
+                results.append(
+                    f"{element.tag} {element.name}: {element.value}"
+                )
+
+        if results:
+            self.metadata_search_result.setText("\n".join(results))
+        else:
+            self.metadata_search_result.setText(
+                "No matching metadata found."
+            )
 
     def set_initial_window(self):
         """DICOM 또는 픽셀 범위를 이용해 초기 Window 값을 설정합니다."""
