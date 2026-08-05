@@ -17,3 +17,4 @@ Thumbs.db
 *.log
 *.tmp
 samples/*_anonymized.dcm
+samples/*.png

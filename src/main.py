@@ -40,6 +40,11 @@ class DicomViewer(QMainWindow):
         self.open_button = QPushButton("Open DICOM")
         self.open_button.clicked.connect(self.open_dicom)
 
+        # PNG 저장 버튼
+        self.save_png_button = QPushButton("Save PNG")
+        self.save_png_button.setEnabled(False)
+        self.save_png_button.clicked.connect(self.save_png)
+
         # 익명화 저장 버튼
         self.anonymize_button = QPushButton("Save Anonymized DICOM")
         self.anonymize_button.setEnabled(False)
@@ -107,6 +112,7 @@ class DicomViewer(QMainWindow):
         # 오른쪽 제어 영역
         control_layout = QVBoxLayout()
         control_layout.addWidget(self.open_button)
+        control_layout.addWidget(self.save_png_button)
         control_layout.addWidget(self.anonymize_button)
         control_layout.addLayout(metadata_layout)
         control_layout.addWidget(QLabel("Metadata Search"))
@@ -149,6 +155,7 @@ class DicomViewer(QMainWindow):
             self.pixel_array = pixel_array
             self.current_file_path = file_path
 
+            self.save_png_button.setEnabled(True)
             self.anonymize_button.setEnabled(True)
 
             self.update_metadata()
@@ -306,6 +313,62 @@ class DicomViewer(QMainWindow):
         )
 
         self.image_label.setPixmap(pixmap)
+
+    def save_png(self):
+        """현재 Window 설정이 적용된 영상을 PNG로 저장합니다."""
+        if self.pixel_array is None or not self.current_file_path:
+            QMessageBox.warning(
+                self,
+                "No DICOM File",
+                "Please open a DICOM file first.",
+            )
+            return
+
+        source_path = Path(self.current_file_path)
+        default_output_path = source_path.with_suffix(".png")
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save PNG Image",
+            str(default_output_path),
+            "PNG Images (*.png);;All Files (*)",
+        )
+
+        if not output_path:
+            return
+
+        if not Path(output_path).suffix:
+            output_path += ".png"
+
+        windowed = apply_window(
+            self.pixel_array,
+            self.window_center_spin.value(),
+            self.window_width_spin.value(),
+        )
+
+        windowed = np.ascontiguousarray(windowed)
+        height, width = windowed.shape
+
+        image = QImage(
+            windowed.data,
+            width,
+            height,
+            windowed.strides[0],
+            QImage.Format_Grayscale8,
+        ).copy()
+
+        if image.save(output_path, "PNG"):
+            QMessageBox.information(
+                self,
+                "PNG Save Complete",
+                f"PNG image saved:\n{output_path}",
+            )
+        else:
+            QMessageBox.critical(
+                self,
+                "PNG Save Error",
+                "Failed to save the PNG image.",
+            )
 
     def save_anonymized(self):
         """현재 DICOM을 익명화하여 새 파일로 저장합니다."""
