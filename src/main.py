@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
 from anonymizer import save_anonymized_dicom
 from dicom_loader import extract_metadata, load_dicom
 from windowing import apply_window
+from image_view import ImageView
 
 
 class DicomViewer(QMainWindow):
@@ -51,13 +52,20 @@ class DicomViewer(QMainWindow):
         self.anonymize_button.clicked.connect(self.save_anonymized)
 
         # 영상 표시 영역
-        self.image_label = QLabel("Open a DICOM file")
-        self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setMinimumSize(512, 512)
-        self.image_label.setStyleSheet(
-            "background-color: black;"
-            "color: white;"
-            "border: 1px solid gray;"
+        self.image_view = ImageView()
+        self.image_view.setMinimumSize(512, 512)
+
+        # View 초기화 버튼
+        self.reset_view_button = QPushButton("Reset View")
+        self.reset_view_button.clicked.connect(
+            self.image_view.reset_view
+        )
+        
+        # Zoom 배율 표시
+        self.zoom_label = QLabel("Zoom: 100%")
+        
+        self.image_view.zoom_changed.connect(
+            self.update_zoom_label
         )
 
         # 메타데이터 표시
@@ -114,6 +122,9 @@ class DicomViewer(QMainWindow):
         control_layout.addWidget(self.open_button)
         control_layout.addWidget(self.save_png_button)
         control_layout.addWidget(self.anonymize_button)
+        control_layout.addWidget(self.reset_view_button)
+        control_layout.addWidget(self.zoom_label)
+        
         control_layout.addLayout(metadata_layout)
         control_layout.addWidget(QLabel("Metadata Search"))
 
@@ -129,7 +140,7 @@ class DicomViewer(QMainWindow):
 
         # 전체 화면 구성
         main_layout = QHBoxLayout()
-        main_layout.addWidget(self.image_label, 1)
+        main_layout.addWidget(self.image_view, 1)
         main_layout.addLayout(control_layout)
 
         container = QWidget()
@@ -283,6 +294,10 @@ class DicomViewer(QMainWindow):
         except (TypeError, ValueError, IndexError):
             return float(default)
 
+    def update_zoom_label(self, percentage):
+        """현재 Zoom 배율을 표시합니다."""
+        self.zoom_label.setText(f"Zoom: {percentage}%")
+
     def update_image(self):
         """Window Center/Width를 적용하여 영상을 갱신합니다."""
         if self.pixel_array is None:
@@ -306,13 +321,7 @@ class DicomViewer(QMainWindow):
         ).copy()
 
         pixmap = QPixmap.fromImage(image)
-        pixmap = pixmap.scaled(
-            self.image_label.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
-        )
-
-        self.image_label.setPixmap(pixmap)
+        self.image_view.set_pixmap(pixmap)
 
     def save_png(self):
         """현재 Window 설정이 적용된 영상을 PNG로 저장합니다."""
