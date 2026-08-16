@@ -19,6 +19,10 @@ def load_dicom(file_path: str) -> tuple[Dataset, np.ndarray]:
 
     pixel_array = dataset.pixel_array.astype(np.float32)
 
+    slope = float(getattr(dataset, "RescaleSlope", 1.0))
+    intercept = float(getattr(dataset, "RescaleIntercept", 0.0))
+    pixel_array = pixel_array * slope + intercept
+
     return dataset, pixel_array
 
 

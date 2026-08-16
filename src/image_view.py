@@ -5,8 +5,9 @@ from PyQt5.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
 
 class ImageView(QGraphicsView):
     """DICOM 이미지의 확대, 축소 및 이동을 담당하는 뷰."""
-    
+
     zoom_changed = pyqtSignal(int)
+    window_changed = pyqtSignal(float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -22,6 +23,16 @@ class ImageView(QGraphicsView):
         self.min_zoom = 0.1
         self.max_zoom = 10.0
 
+        self.window_center = 0.0
+        self.window_width = 1.0
+        self.default_window_center = 0.0
+        self.default_window_width = 1.0
+
+        self.adjusting_window = False
+        self.window_drag_start = None
+        self.drag_start_center = 0.0
+        self.drag_start_width = 1.0
+
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
@@ -30,11 +41,81 @@ class ImageView(QGraphicsView):
         self.setAlignment(Qt.AlignCenter)
         self.setBackgroundBrush(Qt.black)
 
-    def set_pixmap(self, pixmap):
-        """표시할 이미지를 설정하고 화면에 맞춘다."""
+    def set_pixmap(self, pixmap, fit=False):
+        """표시할 이미지를 설정하며 필요할 때만 화면에 맞춘다."""
         self.pixmap_item.setPixmap(pixmap)
         self.scene.setSceneRect(self.pixmap_item.boundingRect())
-        self.fit_to_view()
+
+        if fit:
+            self.fit_to_view()
+
+    def set_window_values(self, center, width, set_default=False):
+        """현재 Window Center/Width 값을 저장한다."""
+        self.window_center = float(center)
+        self.window_width = max(float(width), 1.0)
+
+        if set_default:
+            self.default_window_center = self.window_center
+            self.default_window_width = self.window_width
+
+    def reset_window(self):
+        """DICOM을 열었을 때의 Window 값으로 되돌린다."""
+        self.set_window_values(
+            self.default_window_center,
+            self.default_window_width,
+        )
+        self.window_changed.emit(
+            self.window_center,
+            self.window_width,
+        )
+
+    def mousePressEvent(self, event):
+        """오른쪽 버튼을 누르면 Window 조절을 시작한다."""
+        if (
+            event.button() == Qt.RightButton
+            and not self.pixmap_item.pixmap().isNull()
+        ):
+            self.adjusting_window = True
+            self.window_drag_start = event.pos()
+            self.drag_start_center = self.window_center
+            self.drag_start_width = self.window_width
+            self.setDragMode(QGraphicsView.NoDrag)
+            self.setCursor(Qt.SizeAllCursor)
+            event.accept()
+            return
+
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """우클릭 드래그의 수평/수직 이동으로 WW/WL을 조절한다."""
+        if self.adjusting_window and self.window_drag_start is not None:
+            delta = event.pos() - self.window_drag_start
+            scale = max(abs(self.drag_start_width) / 500.0, 1.0)
+
+            center = self.drag_start_center - delta.y() * scale
+            width = max(
+                1.0,
+                self.drag_start_width + delta.x() * scale,
+            )
+
+            self.set_window_values(center, width)
+            self.window_changed.emit(center, width)
+            event.accept()
+            return
+
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """오른쪽 버튼을 놓으면 Window 조절을 종료한다."""
+        if event.button() == Qt.RightButton and self.adjusting_window:
+            self.adjusting_window = False
+            self.window_drag_start = None
+            self.setDragMode(QGraphicsView.ScrollHandDrag)
+            self.unsetCursor()
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event):
         """마우스 휠로 이미지를 확대하거나 축소한다."""

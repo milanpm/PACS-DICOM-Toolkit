@@ -60,12 +60,21 @@ class DicomViewer(QMainWindow):
         self.reset_view_button.clicked.connect(
             self.image_view.reset_view
         )
-        
+
+        self.reset_window_button = QPushButton("Reset Window")
+        self.reset_window_button.clicked.connect(
+            self.image_view.reset_window
+        )
+
         # Zoom 배율 표시
         self.zoom_label = QLabel("Zoom: 100%")
-        
+        self.window_label = QLabel("WC: -  WW: -")
+
         self.image_view.zoom_changed.connect(
             self.update_zoom_label
+        )
+        self.image_view.window_changed.connect(
+            self.update_window_controls
         )
 
         # 메타데이터 표시
@@ -105,13 +114,17 @@ class DicomViewer(QMainWindow):
         self.window_center_spin = QSpinBox()
         self.window_center_spin.setRange(-65535, 65535)
         self.window_center_spin.setValue(32768)
-        self.window_center_spin.valueChanged.connect(self.update_image)
+        self.window_center_spin.valueChanged.connect(
+            self.on_window_controls_changed
+        )
 
         # Window Width
         self.window_width_spin = QSpinBox()
         self.window_width_spin.setRange(1, 131070)
         self.window_width_spin.setValue(65536)
-        self.window_width_spin.valueChanged.connect(self.update_image)
+        self.window_width_spin.valueChanged.connect(
+            self.on_window_controls_changed
+        )
 
         window_layout = QFormLayout()
         window_layout.addRow("Window Center:", self.window_center_spin)
@@ -123,8 +136,10 @@ class DicomViewer(QMainWindow):
         control_layout.addWidget(self.save_png_button)
         control_layout.addWidget(self.anonymize_button)
         control_layout.addWidget(self.reset_view_button)
+        control_layout.addWidget(self.reset_window_button)
         control_layout.addWidget(self.zoom_label)
-        
+        control_layout.addWidget(self.window_label)
+
         control_layout.addLayout(metadata_layout)
         control_layout.addWidget(QLabel("Metadata Search"))
 
@@ -172,6 +187,7 @@ class DicomViewer(QMainWindow):
             self.update_metadata()
             self.set_initial_window()
             self.update_image()
+            self.image_view.fit_to_view()
 
         except Exception as error:
             QMessageBox.critical(
@@ -276,6 +292,13 @@ class DicomViewer(QMainWindow):
         self.window_center_spin.blockSignals(False)
         self.window_width_spin.blockSignals(False)
 
+        self.image_view.set_window_values(
+            self.window_center_spin.value(),
+            self.window_width_spin.value(),
+            set_default=True,
+        )
+        self.update_window_label()
+
     @staticmethod
     def get_numeric_value(value, default):
         """단일 값 또는 여러 DICOM 값 중 첫 번째 값을 숫자로 변환합니다."""
@@ -298,15 +321,53 @@ class DicomViewer(QMainWindow):
         """현재 Zoom 배율을 표시합니다."""
         self.zoom_label.setText(f"Zoom: {percentage}%")
 
+    def update_window_label(self):
+        """현재 Window Center/Width를 표시합니다."""
+        self.window_label.setText(
+            f"WC: {self.window_center_spin.value()}  "
+            f"WW: {self.window_width_spin.value()}"
+        )
+
+    def on_window_controls_changed(self, _value=None):
+        """SpinBox 변경값을 ImageView와 영상에 반영합니다."""
+        center = self.window_center_spin.value()
+        width = self.window_width_spin.value()
+
+        self.image_view.set_window_values(center, width)
+        self.update_window_label()
+        self.update_image()
+
+    def update_window_controls(self, center, width):
+        """ImageView에서 전달된 Window 값을 SpinBox에 반영합니다."""
+        center = max(
+            self.window_center_spin.minimum(),
+            min(round(center), self.window_center_spin.maximum()),
+        )
+        width = max(
+            self.window_width_spin.minimum(),
+            min(round(width), self.window_width_spin.maximum()),
+        )
+
+        self.window_center_spin.blockSignals(True)
+        self.window_width_spin.blockSignals(True)
+        self.window_center_spin.setValue(center)
+        self.window_width_spin.setValue(width)
+        self.window_center_spin.blockSignals(False)
+        self.window_width_spin.blockSignals(False)
+
+        self.image_view.set_window_values(center, width)
+        self.update_window_label()
+        self.update_image()
+
     def update_image(self):
         """Window Center/Width를 적용하여 영상을 갱신합니다."""
         if self.pixel_array is None:
             return
 
         windowed = apply_window(
-            self.pixel_array,
-            self.window_center_spin.value(),
-            self.window_width_spin.value(),
+            pixel_array=self.pixel_array,
+            window_center=self.window_center_spin.value(),
+            window_width=self.window_width_spin.value(),
         )
 
         windowed = np.ascontiguousarray(windowed)
@@ -350,9 +411,9 @@ class DicomViewer(QMainWindow):
             output_path += ".png"
 
         windowed = apply_window(
-            self.pixel_array,
-            self.window_center_spin.value(),
-            self.window_width_spin.value(),
+            pixel_array=self.pixel_array,
+            window_center=self.window_center_spin.value(),
+            window_width=self.window_width_spin.value(),
         )
 
         windowed = np.ascontiguousarray(windowed)
@@ -431,8 +492,6 @@ class DicomViewer(QMainWindow):
         """창 크기가 변경되면 영상도 다시 맞춥니다."""
         super().resizeEvent(event)
 
-        if self.pixel_array is not None:
-            self.update_image()
 
 
 def main():
