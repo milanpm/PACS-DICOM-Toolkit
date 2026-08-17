@@ -8,6 +8,7 @@ class ImageView(QGraphicsView):
 
     zoom_changed = pyqtSignal(int)
     window_changed = pyqtSignal(float, float)
+    pixel_position_changed = pyqtSignal(int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -40,6 +41,7 @@ class ImageView(QGraphicsView):
 
         self.setAlignment(Qt.AlignCenter)
         self.setBackgroundBrush(Qt.black)
+        self.setMouseTracking(True)
 
     def set_pixmap(self, pixmap, fit=False):
         """표시할 이미지를 설정하며 필요할 때만 화면에 맞춘다."""
@@ -87,7 +89,7 @@ class ImageView(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        """우클릭 드래그의 수평/수직 이동으로 WW/WL을 조절한다."""
+        """마우스 이동을 처리하고 우클릭 드래그 시 WW/WL을 조절한다."""
         if self.adjusting_window and self.window_drag_start is not None:
             delta = event.pos() - self.window_drag_start
             scale = max(abs(self.drag_start_width) / 500.0, 1.0)
@@ -102,6 +104,18 @@ class ImageView(QGraphicsView):
             self.window_changed.emit(center, width)
             event.accept()
             return
+
+        if not self.pixmap_item.pixmap().isNull():
+            scene_pos = self.mapToScene(event.pos())
+            image_pos = self.pixmap_item.mapFromScene(scene_pos)
+
+            x = int(image_pos.x())
+            y = int(image_pos.y())
+
+            pixmap = self.pixmap_item.pixmap()
+
+            if 0 <= x < pixmap.width() and 0 <= y < pixmap.height():
+                self.pixel_position_changed.emit(x, y)
 
         super().mouseMoveEvent(event)
 

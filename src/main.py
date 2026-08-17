@@ -69,12 +69,18 @@ class DicomViewer(QMainWindow):
         # Zoom 배율 표시
         self.zoom_label = QLabel("Zoom: 100%")
         self.window_label = QLabel("WC: -  WW: -")
+        self.pixel_info_label = QLabel(
+            "X: -  Y: -  Pixel: -  HU: -"
+        )
 
         self.image_view.zoom_changed.connect(
             self.update_zoom_label
         )
         self.image_view.window_changed.connect(
             self.update_window_controls
+        )
+        self.image_view.pixel_position_changed.connect(
+            self.update_pixel_info
         )
 
         # 메타데이터 표시
@@ -139,6 +145,7 @@ class DicomViewer(QMainWindow):
         control_layout.addWidget(self.reset_window_button)
         control_layout.addWidget(self.zoom_label)
         control_layout.addWidget(self.window_label)
+        control_layout.addWidget(self.pixel_info_label)
 
         control_layout.addLayout(metadata_layout)
         control_layout.addWidget(QLabel("Metadata Search"))
@@ -320,6 +327,28 @@ class DicomViewer(QMainWindow):
     def update_zoom_label(self, percentage):
         """현재 Zoom 배율을 표시합니다."""
         self.zoom_label.setText(f"Zoom: {percentage}%")
+
+    def update_pixel_info(self, x, y):
+        """현재 마우스 위치의 Raw Pixel 값과 HU 값을 표시합니다."""
+        if self.dataset is None or self.pixel_array is None:
+            return
+
+        raw_pixel_array = self.dataset.pixel_array
+
+        if not (
+            0 <= y < raw_pixel_array.shape[0]
+            and 0 <= x < raw_pixel_array.shape[1]
+        ):
+            return
+
+        raw_value = raw_pixel_array[y, x]
+        hu_value = self.pixel_array[y, x]
+
+        self.pixel_info_label.setText(
+            f"X: {x}  Y: {y}  "
+            f"Pixel: {raw_value}  "
+            f"HU: {hu_value:.0f}"
+        )
 
     def update_window_label(self):
         """현재 Window Center/Width를 표시합니다."""
