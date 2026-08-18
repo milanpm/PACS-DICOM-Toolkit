@@ -1,6 +1,12 @@
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QPainter
-from PyQt5.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
+from PyQt5.QtGui import QPainter, QPen
+from PyQt5.QtWidgets import (
+    QGraphicsEllipseItem,
+    QGraphicsLineItem,
+    QGraphicsPixmapItem,
+    QGraphicsScene,
+    QGraphicsView
+)
 
 
 class ImageView(QGraphicsView):
@@ -9,6 +15,7 @@ class ImageView(QGraphicsView):
     zoom_changed = pyqtSignal(int)
     window_changed = pyqtSignal(float, float)
     pixel_position_changed = pyqtSignal(int, int)
+    measurement_point_selected = pyqtSignal(int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -42,6 +49,10 @@ class ImageView(QGraphicsView):
         self.setAlignment(Qt.AlignCenter)
         self.setBackgroundBrush(Qt.black)
         self.setMouseTracking(True)
+
+        self.measurement_line = None
+        self.measurement_start_marker = None
+        self.measurement_end_marker = None
 
     def set_pixmap(self, pixmap, fit=False):
         """표시할 이미지를 설정하며 필요할 때만 화면에 맞춘다."""
@@ -83,6 +94,26 @@ class ImageView(QGraphicsView):
             self.drag_start_width = self.window_width
             self.setDragMode(QGraphicsView.NoDrag)
             self.setCursor(Qt.SizeAllCursor)
+            event.accept()
+            return
+
+        # Shift + 왼쪽 클릭으로 측정 포인트를 선택한다.
+        if (
+            event.button() == Qt.LeftButton
+            and event.modifiers() & Qt.ShiftModifier
+            and not self.pixmap_item.pixmap().isNull()
+        ):
+            scene_pos = self.mapToScene(event.pos())
+            image_pos = self.pixmap_item.mapFromScene(scene_pos)
+
+            x = int(image_pos.x())
+            y = int(image_pos.y())
+
+            pixmap = self.pixmap_item.pixmap()
+
+            if 0 <= x < pixmap.width() and 0 <= y < pixmap.height():
+                self.measurement_point_selected.emit(x, y)
+
             event.accept()
             return
 
@@ -165,3 +196,58 @@ class ImageView(QGraphicsView):
     def get_zoom_percentage(self):
         """현재 확대 배율을 백분율로 반환한다."""
         return round(self.zoom_factor * 100)
+
+    def clear_measurement(self):
+        """현재 거리 측정 오버레이를 제거한다."""
+        for item in (
+            self.measurement_line,
+            self.measurement_start_marker,
+            self.measurement_end_marker,
+        ):
+            if item is not None:
+                self.scene.removeItem(item)
+
+        self.measurement_line = None
+        self.measurement_start_marker = None
+        self.measurement_end_marker = None
+
+
+    def show_measurement(self, start, end):
+        """두 이미지 좌표 사이에 거리 측정선을 표시한다."""
+        self.clear_measurement()
+
+        x1, y1 = start
+        x2, y2 = end
+
+        pen = QPen(Qt.yellow)
+        pen.setWidth(2)
+
+        self.measurement_line = QGraphicsLineItem(
+            x1,
+            y1,
+            x2,
+            y2,
+        )
+        self.measurement_line.setPen(pen)
+        self.scene.addItem(self.measurement_line)
+
+        marker_size = 6
+        radius = marker_size / 2
+
+        self.measurement_start_marker = QGraphicsEllipseItem(
+            x1 - radius,
+            y1 - radius,
+            marker_size,
+            marker_size,
+        )
+        self.measurement_start_marker.setPen(pen)
+        self.scene.addItem(self.measurement_start_marker)
+
+        self.measurement_end_marker = QGraphicsEllipseItem(
+            x2 - radius,
+            y2 - radius,
+            marker_size,
+            marker_size,
+        )
+        self.measurement_end_marker.setPen(pen)
+        self.scene.addItem(self.measurement_end_marker)

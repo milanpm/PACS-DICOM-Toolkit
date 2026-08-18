@@ -33,6 +33,7 @@ class DicomViewer(QMainWindow):
         self.dataset = None
         self.pixel_array = None
         self.current_file_path = None
+        self.measurement_points = []
 
         self.setWindowTitle("PACS DICOM Toolkit")
         self.resize(900, 700)
@@ -72,6 +73,7 @@ class DicomViewer(QMainWindow):
         self.pixel_info_label = QLabel(
             "X: -  Y: -  Pixel: -  HU: -"
         )
+        self.distance_label = QLabel("Distance: -")
 
         self.image_view.zoom_changed.connect(
             self.update_zoom_label
@@ -81,6 +83,9 @@ class DicomViewer(QMainWindow):
         )
         self.image_view.pixel_position_changed.connect(
             self.update_pixel_info
+        )
+        self.image_view.measurement_point_selected.connect(
+            self.add_measurement_point
         )
 
         # 메타데이터 표시
@@ -143,9 +148,11 @@ class DicomViewer(QMainWindow):
         control_layout.addWidget(self.anonymize_button)
         control_layout.addWidget(self.reset_view_button)
         control_layout.addWidget(self.reset_window_button)
+
         control_layout.addWidget(self.zoom_label)
         control_layout.addWidget(self.window_label)
         control_layout.addWidget(self.pixel_info_label)
+        control_layout.addWidget(self.distance_label)
 
         control_layout.addLayout(metadata_layout)
         control_layout.addWidget(QLabel("Metadata Search"))
@@ -187,6 +194,10 @@ class DicomViewer(QMainWindow):
             self.dataset = dataset
             self.pixel_array = pixel_array
             self.current_file_path = file_path
+
+            self.measurement_points.clear()
+            self.distance_label.setText("Distance: -")
+            self.image_view.clear_measurement()
 
             self.save_png_button.setEnabled(True)
             self.anonymize_button.setEnabled(True)
@@ -521,6 +532,58 @@ class DicomViewer(QMainWindow):
         """창 크기가 변경되면 영상도 다시 맞춥니다."""
         super().resizeEvent(event)
 
+
+    def add_measurement_point(self, x, y):
+        """두 측정 포인트 사이의 거리를 pixel 또는 mm 단위로 표시합니다."""
+        if self.dataset is None:
+            return
+
+        if len(self.measurement_points) == 2:
+            self.measurement_points.clear()
+            self.image_view.clear_measurement()
+
+        self.measurement_points.append((x, y))
+
+        if len(self.measurement_points) == 1:
+            self.distance_label.setText(
+                f"Point 1: ({x}, {y})"
+            )
+            return
+
+        (x1, y1), (x2, y2) = self.measurement_points
+
+        self.image_view.show_measurement(
+            (x1, y1),
+            (x2, y2),
+        )
+
+        dx = x2 - x1
+        dy = y2 - y1
+
+        pixel_spacing = getattr(
+            self.dataset,
+            "PixelSpacing",
+            None,
+        )
+
+        if pixel_spacing is None or len(pixel_spacing) < 2:
+            distance = np.sqrt(dx ** 2 + dy ** 2)
+            self.distance_label.setText(
+                f"Distance: {distance:.2f} px"
+            )
+            return
+
+        row_spacing = float(pixel_spacing[0])
+        column_spacing = float(pixel_spacing[1])
+
+        distance_mm = np.sqrt(
+            (dx * column_spacing) ** 2
+            + (dy * row_spacing) ** 2
+        )
+
+        self.distance_label.setText(
+            f"Distance: {distance_mm:.2f} mm"
+        )
 
 
 def main():
