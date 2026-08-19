@@ -1,9 +1,10 @@
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QRectF, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen
 from PyQt5.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsLineItem,
     QGraphicsPixmapItem,
+    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView
 )
@@ -16,6 +17,7 @@ class ImageView(QGraphicsView):
     window_changed = pyqtSignal(float, float)
     pixel_position_changed = pyqtSignal(int, int)
     measurement_point_selected = pyqtSignal(int, int)
+    roi_selected = pyqtSignal(int, int, int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -53,6 +55,10 @@ class ImageView(QGraphicsView):
         self.measurement_line = None
         self.measurement_start_marker = None
         self.measurement_end_marker = None
+
+        self.selecting_roi = False
+        self.roi_start = None
+        self.roi_rectangle = None
 
     def set_pixmap(self, pixmap, fit=False):
         """표시할 이미지를 설정하며 필요할 때만 화면에 맞춘다."""
@@ -97,6 +103,25 @@ class ImageView(QGraphicsView):
             event.accept()
             return
 
+        # Ctrl + 왼쪽 드래그로 사각형 ROI를 선택한다.
+        if (
+            event.button() == Qt.LeftButton
+            and event.modifiers() & Qt.ControlModifier
+            and not self.pixmap_item.pixmap().isNull()
+        ):
+            image_point = self.get_image_point(event.pos())
+
+            if image_point is not None:
+                self.clear_roi()
+                self.selecting_roi = True
+                self.roi_start = image_point
+                self.setDragMode(QGraphicsView.NoDrag)
+                self.setCursor(Qt.CrossCursor)
+                self.show_roi(image_point, image_point)
+
+            event.accept()
+            return
+
         # Shift + 왼쪽 클릭으로 측정 포인트를 선택한다.
         if (
             event.button() == Qt.LeftButton
@@ -136,6 +161,15 @@ class ImageView(QGraphicsView):
             event.accept()
             return
 
+        if self.selecting_roi and self.roi_start is not None:
+            image_point = self.get_image_point(event.pos(), clamp=True)
+
+            if image_point is not None:
+                self.show_roi(self.roi_start, image_point)
+
+            event.accept()
+            return
+
         if not self.pixmap_item.pixmap().isNull():
             scene_pos = self.mapToScene(event.pos())
             image_pos = self.pixmap_item.mapFromScene(scene_pos)
@@ -157,6 +191,27 @@ class ImageView(QGraphicsView):
             self.window_drag_start = None
             self.setDragMode(QGraphicsView.ScrollHandDrag)
             self.unsetCursor()
+            event.accept()
+            return
+
+        if event.button() == Qt.LeftButton and self.selecting_roi:
+            image_point = self.get_image_point(event.pos(), clamp=True)
+            start = self.roi_start
+
+            self.selecting_roi = False
+            self.roi_start = None
+            self.setDragMode(QGraphicsView.ScrollHandDrag)
+            self.unsetCursor()
+
+            if start is not None and image_point is not None:
+                self.show_roi(start, image_point)
+
+                x1 = min(start[0], image_point[0])
+                y1 = min(start[1], image_point[1])
+                x2 = max(start[0], image_point[0])
+                y2 = max(start[1], image_point[1])
+                self.roi_selected.emit(x1, y1, x2, y2)
+
             event.accept()
             return
 
@@ -196,6 +251,52 @@ class ImageView(QGraphicsView):
     def get_zoom_percentage(self):
         """현재 확대 배율을 백분율로 반환한다."""
         return round(self.zoom_factor * 100)
+
+    def get_image_point(self, view_pos, clamp=False):
+        """View 좌표를 영상 픽셀 좌표로 변환한다."""
+        if self.pixmap_item.pixmap().isNull():
+            return None
+
+        scene_pos = self.mapToScene(view_pos)
+        image_pos = self.pixmap_item.mapFromScene(scene_pos)
+        pixmap = self.pixmap_item.pixmap()
+
+        x = int(image_pos.x())
+        y = int(image_pos.y())
+
+        if clamp:
+            x = max(0, min(x, pixmap.width() - 1))
+            y = max(0, min(y, pixmap.height() - 1))
+            return x, y
+
+        if 0 <= x < pixmap.width() and 0 <= y < pixmap.height():
+            return x, y
+
+        return None
+
+    def clear_roi(self):
+        """현재 ROI 사각형 오버레이를 제거한다."""
+        if self.roi_rectangle is not None:
+            self.scene.removeItem(self.roi_rectangle)
+            self.roi_rectangle = None
+
+    def show_roi(self, start, end):
+        """두 영상 좌표가 만드는 사각형 ROI를 표시한다."""
+        x1 = min(start[0], end[0])
+        y1 = min(start[1], end[1])
+        x2 = max(start[0], end[0])
+        y2 = max(start[1], end[1])
+
+        if self.roi_rectangle is None:
+            pen = QPen(Qt.green)
+            pen.setWidth(2)
+            self.roi_rectangle = QGraphicsRectItem()
+            self.roi_rectangle.setPen(pen)
+            self.scene.addItem(self.roi_rectangle)
+
+        self.roi_rectangle.setRect(
+            QRectF(x1, y1, x2 - x1 + 1, y2 - y1 + 1)
+        )
 
     def clear_measurement(self):
         """현재 거리 측정 오버레이를 제거한다."""

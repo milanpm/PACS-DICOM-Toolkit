@@ -67,6 +67,11 @@ class DicomViewer(QMainWindow):
             self.image_view.reset_window
         )
 
+        self.clear_roi_button = QPushButton("Clear ROI")
+        self.clear_roi_button.clicked.connect(
+            self.clear_roi_measurement
+        )
+
         # Zoom 배율 표시
         self.zoom_label = QLabel("Zoom: 100%")
         self.window_label = QLabel("WC: -  WW: -")
@@ -74,6 +79,7 @@ class DicomViewer(QMainWindow):
             "X: -  Y: -  Pixel: -  HU: -"
         )
         self.distance_label = QLabel("Distance: -")
+        self.roi_label = QLabel("ROI: Ctrl + Left Drag")
 
         self.image_view.zoom_changed.connect(
             self.update_zoom_label
@@ -86,6 +92,9 @@ class DicomViewer(QMainWindow):
         )
         self.image_view.measurement_point_selected.connect(
             self.add_measurement_point
+        )
+        self.image_view.roi_selected.connect(
+            self.update_roi_measurement
         )
 
         # 메타데이터 표시
@@ -148,11 +157,13 @@ class DicomViewer(QMainWindow):
         control_layout.addWidget(self.anonymize_button)
         control_layout.addWidget(self.reset_view_button)
         control_layout.addWidget(self.reset_window_button)
+        control_layout.addWidget(self.clear_roi_button)
 
         control_layout.addWidget(self.zoom_label)
         control_layout.addWidget(self.window_label)
         control_layout.addWidget(self.pixel_info_label)
         control_layout.addWidget(self.distance_label)
+        control_layout.addWidget(self.roi_label)
 
         control_layout.addLayout(metadata_layout)
         control_layout.addWidget(QLabel("Metadata Search"))
@@ -198,6 +209,8 @@ class DicomViewer(QMainWindow):
             self.measurement_points.clear()
             self.distance_label.setText("Distance: -")
             self.image_view.clear_measurement()
+            self.roi_label.setText("ROI: Ctrl + Left Drag")
+            self.image_view.clear_roi()
 
             self.save_png_button.setEnabled(True)
             self.anonymize_button.setEnabled(True)
@@ -584,6 +597,35 @@ class DicomViewer(QMainWindow):
         self.distance_label.setText(
             f"Distance: {distance_mm:.2f} mm"
         )
+
+    def update_roi_measurement(self, x1, y1, x2, y2):
+        """선택한 사각형 ROI의 Mean/Min/Max HU를 표시합니다."""
+        if self.pixel_array is None:
+            return
+
+        height, width = self.pixel_array.shape[:2]
+        x1 = max(0, min(x1, width - 1))
+        x2 = max(0, min(x2, width - 1))
+        y1 = max(0, min(y1, height - 1))
+        y2 = max(0, min(y2, height - 1))
+
+        roi = self.pixel_array[y1:y2 + 1, x1:x2 + 1]
+
+        if roi.size == 0:
+            self.roi_label.setText("ROI: -")
+            return
+
+        self.roi_label.setText(
+            f"ROI: {roi.shape[1]} x {roi.shape[0]} px\n"
+            f"Mean: {np.mean(roi):.2f} HU\n"
+            f"Min: {np.min(roi):.2f} HU\n"
+            f"Max: {np.max(roi):.2f} HU"
+        )
+
+    def clear_roi_measurement(self):
+        """ROI 사각형과 측정 결과를 초기화합니다."""
+        self.image_view.clear_roi()
+        self.roi_label.setText("ROI: Ctrl + Left Drag")
 
 
 def main():
