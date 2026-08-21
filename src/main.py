@@ -30,56 +30,40 @@ class DicomViewer(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self.initialize_state()
+        self.setup_ui()
+        self.connect_signals()
+
+    def initialize_state(self):
+        """Initialize DICOM data and measurement state."""
         self.dataset = None
         self.pixel_array = None
         self.current_file_path = None
         self.measurement_points = []
 
-        self.setWindowTitle("PACS DICOM Toolkit")
-        self.resize(900, 700)
-
-        # DICOM 열기 버튼
-        self.open_button = QPushButton("Open DICOM")
+    def connect_signals(self):
+        """Connect UI events to viewer actions."""
         self.open_button.clicked.connect(self.open_dicom)
-
-        # PNG 저장 버튼
-        self.save_png_button = QPushButton("Save PNG")
-        self.save_png_button.setEnabled(False)
         self.save_png_button.clicked.connect(self.save_png)
-
-        # 익명화 저장 버튼
-        self.anonymize_button = QPushButton("Save Anonymized DICOM")
-        self.anonymize_button.setEnabled(False)
         self.anonymize_button.clicked.connect(self.save_anonymized)
-
-        # 영상 표시 영역
-        self.image_view = ImageView()
-        self.image_view.setMinimumSize(512, 512)
-
-        # View 초기화 버튼
-        self.reset_view_button = QPushButton("Reset View")
         self.reset_view_button.clicked.connect(
             self.image_view.reset_view
         )
-
-        self.reset_window_button = QPushButton("Reset Window")
         self.reset_window_button.clicked.connect(
             self.image_view.reset_window
         )
-
-        self.clear_roi_button = QPushButton("Clear ROI")
         self.clear_roi_button.clicked.connect(
             self.clear_roi_measurement
         )
-
-        # Zoom 배율 표시
-        self.zoom_label = QLabel("Zoom: 100%")
-        self.window_label = QLabel("WC: -  WW: -")
-        self.pixel_info_label = QLabel(
-            "X: -  Y: -  Pixel: -  HU: -"
+        self.metadata_search_button.clicked.connect(
+            self.search_metadata
         )
-        self.distance_label = QLabel("Distance: -")
-        self.roi_label = QLabel("ROI: Ctrl + Left Drag")
+        self.window_center_spin.valueChanged.connect(
+            self.on_window_controls_changed
+        )
+        self.window_width_spin.valueChanged.connect(
+            self.on_window_controls_changed
+        )
 
         self.image_view.zoom_changed.connect(
             self.update_zoom_label
@@ -96,6 +80,40 @@ class DicomViewer(QMainWindow):
         self.image_view.roi_selected.connect(
             self.update_roi_measurement
         )
+
+    def setup_ui(self):
+        """Create and arrange viewer widgets."""
+        self.setWindowTitle("PACS DICOM Toolkit")
+        self.resize(900, 700)
+
+        # DICOM 열기 버튼
+        self.open_button = QPushButton("Open DICOM")
+
+        # PNG 저장 버튼
+        self.save_png_button = QPushButton("Save PNG")
+        self.save_png_button.setEnabled(False)
+
+        # 익명화 저장 버튼
+        self.anonymize_button = QPushButton("Save Anonymized DICOM")
+        self.anonymize_button.setEnabled(False)
+
+        # 영상 표시 영역
+        self.image_view = ImageView()
+        self.image_view.setMinimumSize(512, 512)
+
+        # View 초기화 버튼
+        self.reset_view_button = QPushButton("Reset View")
+        self.reset_window_button = QPushButton("Reset Window")
+        self.clear_roi_button = QPushButton("Clear ROI")
+
+        # Zoom 배율 표시
+        self.zoom_label = QLabel("Zoom: 100%")
+        self.window_label = QLabel("WC: -  WW: -")
+        self.pixel_info_label = QLabel(
+            "X: -  Y: -  Pixel: -  HU: -"
+        )
+        self.distance_label = QLabel("Distance: -")
+        self.roi_label = QLabel("ROI: Ctrl + Left Drag")
 
         # 메타데이터 표시
         self.patient_id_label = QLabel("-")
@@ -122,10 +140,6 @@ class DicomViewer(QMainWindow):
         )
 
         self.metadata_search_button = QPushButton("Search")
-        self.metadata_search_button.clicked.connect(
-            self.search_metadata
-        )
-
         self.metadata_search_result = QTextEdit()
         self.metadata_search_result.setReadOnly(True)
         self.metadata_search_result.setMinimumHeight(120)
@@ -134,17 +148,11 @@ class DicomViewer(QMainWindow):
         self.window_center_spin = QSpinBox()
         self.window_center_spin.setRange(-65535, 65535)
         self.window_center_spin.setValue(32768)
-        self.window_center_spin.valueChanged.connect(
-            self.on_window_controls_changed
-        )
 
         # Window Width
         self.window_width_spin = QSpinBox()
         self.window_width_spin.setRange(1, 131070)
         self.window_width_spin.setValue(65536)
-        self.window_width_spin.valueChanged.connect(
-            self.on_window_controls_changed
-        )
 
         window_layout = QFormLayout()
         window_layout.addRow("Window Center:", self.window_center_spin)
@@ -158,7 +166,6 @@ class DicomViewer(QMainWindow):
         control_layout.addWidget(self.reset_view_button)
         control_layout.addWidget(self.reset_window_button)
         control_layout.addWidget(self.clear_roi_button)
-
         control_layout.addWidget(self.zoom_label)
         control_layout.addWidget(self.window_label)
         control_layout.addWidget(self.pixel_info_label)
@@ -187,6 +194,7 @@ class DicomViewer(QMainWindow):
         container.setLayout(main_layout)
         self.setCentralWidget(container)
 
+
     def open_dicom(self):
         """DICOM 파일을 선택하고 화면에 표시합니다."""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -206,11 +214,7 @@ class DicomViewer(QMainWindow):
             self.pixel_array = pixel_array
             self.current_file_path = file_path
 
-            self.measurement_points.clear()
-            self.distance_label.setText("Distance: -")
-            self.image_view.clear_measurement()
-            self.roi_label.setText("ROI: Ctrl + Left Drag")
-            self.image_view.clear_roi()
+            self.clear_measurements()
 
             self.save_png_button.setEnabled(True)
             self.anonymize_button.setEnabled(True)
@@ -626,6 +630,13 @@ class DicomViewer(QMainWindow):
         """ROI 사각형과 측정 결과를 초기화합니다."""
         self.image_view.clear_roi()
         self.roi_label.setText("ROI: Ctrl + Left Drag")
+
+    def clear_measurements(self):
+        """Clear distance and ROI measurement state."""
+        self.measurement_points.clear()
+        self.image_view.clear_measurement()
+        self.distance_label.setText("Distance: -")
+        self.clear_roi_measurement()
 
 
 def main():
