@@ -20,13 +20,11 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ## Current Status
 
-**Day 11 — DICOM Viewer Refactoring Completed**
+**Day 12 — DICOM Network and C-ECHO Verification Completed**
 
 - Repository: `milanpm/PACS-DICOM-Toolkit`
 - Branch: `main`
-- Latest commit: `9b71d66 Refactor DICOM viewer structure`
-- Working tree: clean
-- Next step: **Day 12 — DICOM Network and C-ECHO**
+- Next step: **Day 13 — C-STORE DICOM Send**
 
 ## Features
 
@@ -82,6 +80,16 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 - Save the anonymized dataset as a separate DICOM file
 - Preserve the original DICOM file
 
+### DICOM Network
+
+- Configure Local and Remote AE Titles
+- Configure the Remote IP address and port
+- Establish a DICOM Association
+- Send a C-ECHO Verification request
+- Display success and failure results
+- Release the Association after communication
+- Handle network and configuration errors
+
 ## Viewer Controls
 
 | Action                         | Control                  |
@@ -107,6 +115,7 @@ PACS-DICOM-Toolkit
 │   ├── main.py
 │   ├── image_view.py
 │   ├── dicom_loader.py
+│   ├── dicom_network.py
 │   ├── anonymizer.py
 │   └── windowing.py
 └── tests
@@ -114,13 +123,14 @@ PACS-DICOM-Toolkit
 
 ### Main Modules
 
-| File                  | Responsibility                                                 |
-| --------------------- | -------------------------------------------------------------- |
-| `src/main.py`         | Manages the application UI and overall viewer behavior         |
-| `src/image_view.py`   | Manages zoom, pan, Window adjustment, and measurement overlays |
-| `src/dicom_loader.py` | Loads DICOM files and extracts metadata                        |
-| `src/anonymizer.py`   | Anonymizes patient information                                 |
-| `src/windowing.py`    | Applies Window Center and Window Width transformations         |
+| File                   | Responsibility                                                 |
+| ---------------------- | -------------------------------------------------------------- |
+| `src/main.py`          | Manages the application UI and overall viewer behavior         |
+| `src/image_view.py`    | Manages zoom, pan, Window adjustment, and measurement overlays |
+| `src/dicom_loader.py`  | Loads DICOM files and extracts metadata                        |
+| `src/dicom_network.py` | Manages DICOM Association and C-ECHO Verification              |
+| `src/anonymizer.py`    | Anonymizes patient information                                 |
+| `src/windowing.py`     | Applies Window Center and Window Width transformations         |
 
 ## Installation
 
@@ -171,8 +181,7 @@ After launching the application, click `Open DICOM` and select a DICOM file.
 - pydicom
 - NumPy
 - Pillow
-
-`pynetdicom` will be added when DICOM networking is implemented in Day 12.
+- pynetdicom
 
 ## Learning Roadmap
 
@@ -188,7 +197,7 @@ After launching the application, click `Open DICOM` and select a DICOM file.
 |    9 | Distance Measurement and Ruler        | Completed |
 |   10 | Rectangular ROI Measurement           | Completed |
 |   11 | DICOM Viewer Refactoring              | Completed |
-|   12 | DICOM Network and C-ECHO Verification |  Planned  |
+|   12 | DICOM Network and C-ECHO Verification | Completed |
 |   13 | C-STORE DICOM Send                    |  Planned  |
 |   14 | Storage SCP and DICOM Receive         |  Planned  |
 |   15 | C-FIND Query                          |  Planned  |
@@ -217,19 +226,19 @@ This refactoring provides a cleaner foundation for adding DICOM network configur
 
 ## Next Step
 
-### Day 12 — DICOM Network Fundamentals
+### Day 13 — C-STORE DICOM Send
 
-The following features will be implemented using `pynetdicom`:
+The next step will extend the network module with DICOM Storage SCU functionality.
 
-- Local AE Title
-- Remote AE Title
-- Remote IP address
-- Remote port
-- DICOM Association
-- Verification SOP Class
-- C-ECHO request and response
-- Association release
-- Network error handling
+Planned features:
+
+- Select a DICOM file to send
+- Request a Storage Presentation Context
+- Establish an Association with a Storage SCP
+- Send a C-STORE request
+- Interpret the C-STORE response status
+- Display transfer success or failure
+- Release the Association after transmission
 
 ## Disclaimer
 

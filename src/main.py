@@ -22,9 +22,9 @@ from PyQt5.QtWidgets import (
 
 from anonymizer import save_anonymized_dicom
 from dicom_loader import extract_metadata, load_dicom
+from dicom_network import verify_connection
 from windowing import apply_window
 from image_view import ImageView
-
 
 class DicomViewer(QMainWindow):
     def __init__(self):
@@ -79,6 +79,9 @@ class DicomViewer(QMainWindow):
         )
         self.image_view.roi_selected.connect(
             self.update_roi_measurement
+        )
+        self.echo_button.clicked.connect(
+            self.send_c_echo
         )
 
     def setup_ui(self):
@@ -154,6 +157,42 @@ class DicomViewer(QMainWindow):
         self.window_width_spin.setRange(1, 131070)
         self.window_width_spin.setValue(65536)
 
+        # DICOM Network configuration
+        self.local_ae_input = QLineEdit("PACS_TOOLKIT")
+        self.local_ae_input.setMaxLength(16)
+
+        self.remote_ae_input = QLineEdit("ANY-SCP")
+        self.remote_ae_input.setMaxLength(16)
+
+        self.remote_ip_input = QLineEdit("127.0.0.1")
+
+        self.remote_port_spin = QSpinBox()
+        self.remote_port_spin.setRange(1, 65535)
+        self.remote_port_spin.setValue(11112)
+
+        self.echo_button = QPushButton("Send C-ECHO")
+        self.network_status_label = QLabel("Network: Not tested")
+
+        network_layout = QFormLayout()
+        network_layout.addRow(
+            "Local AE Title:",
+            self.local_ae_input,
+        )
+        network_layout.addRow(
+            "Remote AE Title:",
+            self.remote_ae_input,
+        )
+        network_layout.addRow(
+            "Remote IP:",
+            self.remote_ip_input,
+        )
+        network_layout.addRow(
+            "Remote Port:",
+            self.remote_port_spin,
+        )
+        network_layout.addRow(self.echo_button)
+        network_layout.addRow(self.network_status_label)
+
         window_layout = QFormLayout()
         window_layout.addRow("Window Center:", self.window_center_spin)
         window_layout.addRow("Window Width:", self.window_width_spin)
@@ -183,6 +222,11 @@ class DicomViewer(QMainWindow):
         control_layout.addWidget(self.metadata_search_result)
         control_layout.addSpacing(20)
         control_layout.addLayout(window_layout)
+
+        control_layout.addSpacing(20)
+        control_layout.addWidget(QLabel("DICOM Network"))
+        control_layout.addLayout(network_layout)
+
         control_layout.addStretch()
 
         # 전체 화면 구성
@@ -638,6 +682,33 @@ class DicomViewer(QMainWindow):
         self.distance_label.setText("Distance: -")
         self.clear_roi_measurement()
 
+    def send_c_echo(self):
+        """Send a C-ECHO request using the current network settings."""
+        self.echo_button.setEnabled(False)
+        self.network_status_label.setText("Network: Connecting...")
+
+        QApplication.processEvents()
+
+        success, message = verify_connection(
+            self.local_ae_input.text(),
+            self.remote_ae_input.text(),
+            self.remote_ip_input.text(),
+            self.remote_port_spin.value(),
+        )
+
+        if success:
+            self.network_status_label.setStyleSheet(
+                "color: green;"
+            )
+        else:
+            self.network_status_label.setStyleSheet(
+                "color: red;"
+            )
+
+        self.network_status_label.setText(
+            f"Network: {message}"
+        )
+        self.echo_button.setEnabled(True)
 
 def main():
     app = QApplication(sys.argv)
