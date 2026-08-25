@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 
 from anonymizer import save_anonymized_dicom
 from dicom_loader import extract_metadata, load_dicom
-from dicom_network import verify_connection
+from dicom_network import send_dicom_file, verify_connection
 from windowing import apply_window
 from image_view import ImageView
 
@@ -82,6 +82,9 @@ class DicomViewer(QMainWindow):
         )
         self.echo_button.clicked.connect(
             self.send_c_echo
+        )
+        self.store_button.clicked.connect(
+            self.send_c_store
         )
 
     def setup_ui(self):
@@ -171,6 +174,10 @@ class DicomViewer(QMainWindow):
         self.remote_port_spin.setValue(11112)
 
         self.echo_button = QPushButton("Send C-ECHO")
+
+        self.store_button = QPushButton("Send C-STORE")
+        self.store_button.setEnabled(False)
+
         self.network_status_label = QLabel("Network: Not tested")
 
         network_layout = QFormLayout()
@@ -191,6 +198,7 @@ class DicomViewer(QMainWindow):
             self.remote_port_spin,
         )
         network_layout.addRow(self.echo_button)
+        network_layout.addRow(self.store_button)
         network_layout.addRow(self.network_status_label)
 
         window_layout = QFormLayout()
@@ -262,6 +270,7 @@ class DicomViewer(QMainWindow):
 
             self.save_png_button.setEnabled(True)
             self.anonymize_button.setEnabled(True)
+            self.store_button.setEnabled(True)
 
             self.update_metadata()
             self.set_initial_window()
@@ -709,6 +718,43 @@ class DicomViewer(QMainWindow):
             f"Network: {message}"
         )
         self.echo_button.setEnabled(True)
+
+    def send_c_store(self):
+        """Send the currently loaded DICOM file using C-STORE."""
+        if not self.current_file_path:
+            QMessageBox.warning(
+                self,
+                "C-STORE",
+                "Please open a DICOM file first.",
+            )
+            return
+
+        self.network_status_label.setStyleSheet("")
+        self.network_status_label.setText(
+            "Network: Sending DICOM..."
+        )
+        QApplication.processEvents()
+
+        success, message = send_dicom_file(
+            self.current_file_path,
+            self.local_ae_input.text(),
+            self.remote_ae_input.text(),
+            self.remote_ip_input.text(),
+            self.remote_port_spin.value(),
+        )
+
+        if success:
+            self.network_status_label.setStyleSheet(
+                "color: green;"
+            )
+        else:
+            self.network_status_label.setStyleSheet(
+                "color: red;"
+            )
+
+        self.network_status_label.setText(
+            f"Network: {message}"
+        )
 
 def main():
     app = QApplication(sys.argv)

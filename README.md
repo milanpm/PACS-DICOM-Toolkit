@@ -20,11 +20,11 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ## Current Status
 
-**Day 12 — DICOM Network and C-ECHO Verification Completed**
+**Day 13 — C-STORE DICOM Send Completed**
 
 - Repository: `milanpm/PACS-DICOM-Toolkit`
 - Branch: `main`
-- Next step: **Day 13 — C-STORE DICOM Send**
+- Next step: **Day 14 — Storage SCP and DICOM Receive**
 
 ## Features
 
@@ -89,6 +89,10 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 - Display success and failure results
 - Release the Association after communication
 - Handle network and configuration errors
+- Send the currently opened DICOM file using C-STORE
+- Request a Storage Presentation Context based on the SOP Class UID
+- Interpret the C-STORE response status
+- Display C-STORE success and failure results
 
 ## Viewer Controls
 
@@ -128,7 +132,7 @@ PACS-DICOM-Toolkit
 | `src/main.py`          | Manages the application UI and overall viewer behavior         |
 | `src/image_view.py`    | Manages zoom, pan, Window adjustment, and measurement overlays |
 | `src/dicom_loader.py`  | Loads DICOM files and extracts metadata                        |
-| `src/dicom_network.py` | Manages DICOM Association and C-ECHO Verification              |
+| `src/dicom_network.py` | Manages DICOM Association, C-ECHO Verification, and C-STORE    |  |
 | `src/anonymizer.py`    | Anonymizes patient information                                 |
 | `src/windowing.py`     | Applies Window Center and Window Width transformations         |
 
@@ -198,7 +202,7 @@ After launching the application, click `Open DICOM` and select a DICOM file.
 |   10 | Rectangular ROI Measurement           | Completed |
 |   11 | DICOM Viewer Refactoring              | Completed |
 |   12 | DICOM Network and C-ECHO Verification | Completed |
-|   13 | C-STORE DICOM Send                    |  Planned  |
+|   13 | C-STORE DICOM Send                    | Completed |
 |   14 | Storage SCP and DICOM Receive         |  Planned  |
 |   15 | C-FIND Query                          |  Planned  |
 |   16 | PACS Integration                      |  Planned  |
@@ -224,21 +228,50 @@ The responsibilities were separated as follows:
 
 This refactoring provides a cleaner foundation for adding DICOM network configuration and communication features.
 
+## Day 13 C-STORE DICOM Send
+
+Day 13 extended the DICOM network module with Storage SCU functionality.
+
+The currently opened DICOM file can now be sent to a remote Storage SCP using a C-STORE request.
+
+The C-STORE communication flow is:
+
+```text
+Storage SCU
+    |
+    | Association Request
+    v
+Storage SCP
+    |
+    | Association Accept
+    v
+Storage SCU
+    |
+    | C-STORE Request
+    v
+Storage SCP
+    |
+    | C-STORE Response
+    v
+0x0000 Success
+```
+
 ## Next Step
 
-### Day 13 — C-STORE DICOM Send
+### Day 14 — Storage SCP and DICOM Receive
 
-The next step will extend the network module with DICOM Storage SCU functionality.
+The next step will extend PACS-DICOM-Toolkit with its own Storage SCP functionality.
 
 Planned features:
 
-- Select a DICOM file to send
-- Request a Storage Presentation Context
-- Establish an Association with a Storage SCP
-- Send a C-STORE request
-- Interpret the C-STORE response status
-- Display transfer success or failure
-- Release the Association after transmission
+- Start a Storage SCP from the toolkit
+- Configure the local AE Title and listening port
+- Accept incoming DICOM Associations
+- Handle C-STORE requests
+- Receive DICOM datasets
+- Save received DICOM objects
+- Display receive status in the application
+- Safely stop the Storage SCP
 
 ## Disclaimer
 
