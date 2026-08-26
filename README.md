@@ -1,12 +1,12 @@
 # PACS-DICOM-Toolkit
 
-> A step-by-step DICOM viewer and PACS networking project built with Python, PyQt5, and pydicom.
+> A step-by-step DICOM viewer and PACS networking project built with Python, PyQt5, pydicom, and pynetdicom.
 
 ## Project Overview
 
 PACS-DICOM-Toolkit is a learning and portfolio project focused on medical imaging software development.
 
-The project begins with a basic DICOM viewer and gradually expands to image interaction, measurement tools, anonymization, and PACS network communication.
+The project begins with a basic DICOM viewer and gradually expands to image interaction, measurement tools, anonymization, DICOM network communication, and PACS integration.
 
 ### Project Goals
 
@@ -15,16 +15,19 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 - Read and search DICOM metadata
 - Protect patient information through anonymization
 - Implement medical image measurement tools
-- Understand PACS and DICOM network communication
+- Understand DICOM network services and PACS communication
+- Implement DICOM Storage SCU and SCP functionality
+- Progress toward practical PACS Query/Retrieve workflows
 - Build a practical medical imaging software portfolio
 
 ## Current Status
 
-**Day 13 — C-STORE DICOM Send Completed**
+**Day 14 — Storage SCP and DICOM Receive Completed**
 
 - Repository: `milanpm/PACS-DICOM-Toolkit`
 - Branch: `main`
-- Next step: **Day 14 — Storage SCP and DICOM Receive**
+- Latest Day 14 commit: `7f751f0 Add DICOM Storage SCP receive`
+- Next step: **Day 15 — C-FIND Query**
 
 ## Features
 
@@ -82,17 +85,39 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ### DICOM Network
 
+#### Verification SCU
+
 - Configure Local and Remote AE Titles
 - Configure the Remote IP address and port
 - Establish a DICOM Association
 - Send a C-ECHO Verification request
-- Display success and failure results
+- Interpret C-ECHO response status
+- Display connection success and failure results
 - Release the Association after communication
 - Handle network and configuration errors
+
+#### Storage SCU
+
 - Send the currently opened DICOM file using C-STORE
 - Request a Storage Presentation Context based on the SOP Class UID
+- Establish an Association with a remote Storage SCP
 - Interpret the C-STORE response status
 - Display C-STORE success and failure results
+- Release the Association after transmission
+
+#### Storage SCP
+
+- Start and stop a local Storage SCP from the application
+- Configure the local Storage SCP listening port
+- Use the configured Local AE Title
+- Support DICOM Storage Presentation Contexts
+- Accept incoming DICOM Associations
+- Handle incoming C-STORE requests using `EVT_C_STORE`
+- Preserve DICOM File Meta information
+- Save received DICOM datasets locally
+- Use the SOP Instance UID as the received filename
+- Return a successful C-STORE response after saving
+- Safely shut down the Storage SCP when the application closes
 
 ## Viewer Controls
 
@@ -115,6 +140,7 @@ PACS-DICOM-Toolkit
 ├── README.md
 ├── requirements.txt
 ├── samples
+├── received
 ├── src
 │   ├── main.py
 │   ├── image_view.py
@@ -125,16 +151,20 @@ PACS-DICOM-Toolkit
 └── tests
 ```
 
+The `received/` directory is used by the Storage SCP to store incoming DICOM objects.
+
+Received DICOM files are excluded from Git tracking to prevent test or patient image data from being accidentally committed.
+
 ### Main Modules
 
-| File                   | Responsibility                                                 |
-| ---------------------- | -------------------------------------------------------------- |
-| `src/main.py`          | Manages the application UI and overall viewer behavior         |
-| `src/image_view.py`    | Manages zoom, pan, Window adjustment, and measurement overlays |
-| `src/dicom_loader.py`  | Loads DICOM files and extracts metadata                        |
-| `src/dicom_network.py` | Manages DICOM Association, C-ECHO Verification, and C-STORE    |  |
-| `src/anonymizer.py`    | Anonymizes patient information                                 |
-| `src/windowing.py`     | Applies Window Center and Window Width transformations         |
+| File                   | Responsibility                                                  |
+| ---------------------- | --------------------------------------------------------------- |
+| `src/main.py`          | Manages the application UI and overall viewer behavior          |
+| `src/image_view.py`    | Manages zoom, pan, Window adjustment, and measurement overlays  |
+| `src/dicom_loader.py`  | Loads DICOM files and extracts metadata                         |
+| `src/dicom_network.py` | Manages DICOM Association, C-ECHO, C-STORE SCU, and Storage SCP |
+| `src/anonymizer.py`    | Anonymizes patient information                                  |
+| `src/windowing.py`     | Applies Window Center and Window Width transformations          |
 
 ## Installation
 
@@ -178,6 +208,58 @@ After launching the application, click `Open DICOM` and select a DICOM file.
 
 > Do not upload real patient DICOM files containing personal information to GitHub.
 
+## DICOM Network Testing
+
+### C-ECHO
+
+A remote Verification SCP can be used to verify DICOM network connectivity.
+
+Example configuration:
+
+```text
+Local AE Title:  PACS_TOOLKIT
+Remote AE Title: ANY-SCP
+Remote IP:       127.0.0.1
+Remote Port:     11112
+```
+
+### C-STORE Send
+
+The currently opened DICOM object can be sent from PACS-DICOM-Toolkit to an external Storage SCP.
+
+```text
+PACS-DICOM-Toolkit
+    Storage SCU
+        |
+        | C-STORE
+        v
+External Storage SCP
+```
+
+### C-STORE Receive
+
+Start the Storage SCP in PACS-DICOM-Toolkit using:
+
+```text
+AE Title: PACS_TOOLKIT
+Port:     11113
+```
+
+An external Storage SCU can then send a DICOM object to the toolkit.
+
+Example using `storescu`:
+
+```bash
+storescu -aet TEST_SCU -aec PACS_TOOLKIT \
+  127.0.0.1 11113 samples/test_image.dcm
+```
+
+Received DICOM objects are stored in:
+
+```text
+received/<SOPInstanceUID>.dcm
+```
+
 ## Dependencies
 
 - Python
@@ -203,11 +285,11 @@ After launching the application, click `Open DICOM` and select a DICOM file.
 |   11 | DICOM Viewer Refactoring              | Completed |
 |   12 | DICOM Network and C-ECHO Verification | Completed |
 |   13 | C-STORE DICOM Send                    | Completed |
-|   14 | Storage SCP and DICOM Receive         |  Planned  |
+|   14 | Storage SCP and DICOM Receive         | Completed |
 |   15 | C-FIND Query                          |  Planned  |
 |   16 | PACS Integration                      |  Planned  |
 
-## Day 11 Refactoring
+## Day 11 — Viewer Refactoring
 
 Day 11 focused on separating responsibilities without changing the existing viewer behavior.
 
@@ -226,52 +308,130 @@ The responsibilities were separated as follows:
 - `connect_signals()` manages Signal–Slot connections.
 - `clear_measurements()` resets distance and ROI measurement state.
 
-This refactoring provides a cleaner foundation for adding DICOM network configuration and communication features.
+This refactoring provides a cleaner foundation for DICOM network configuration and communication features.
 
-## Day 13 C-STORE DICOM Send
+## Day 12 — C-ECHO Verification
+
+Day 12 introduced DICOM network communication to PACS-DICOM-Toolkit.
+
+The toolkit can establish a DICOM Association with a remote Application Entity and send a C-ECHO request to verify network connectivity.
+
+```text
+PACS-DICOM-Toolkit
+ Verification SCU
+        |
+        | Association
+        | C-ECHO
+        v
+Remote Verification SCP
+```
+
+A successful verification returns:
+
+```text
+C-ECHO Success: 0x0000
+```
+
+## Day 13 — C-STORE DICOM Send
 
 Day 13 extended the DICOM network module with Storage SCU functionality.
 
-The currently opened DICOM file can now be sent to a remote Storage SCP using a C-STORE request.
-
-The C-STORE communication flow is:
+The currently opened DICOM file can be sent to a remote Storage SCP using a C-STORE request.
 
 ```text
-Storage SCU
-    |
-    | Association Request
-    v
-Storage SCP
-    |
-    | Association Accept
-    v
-Storage SCU
-    |
-    | C-STORE Request
-    v
-Storage SCP
-    |
-    | C-STORE Response
-    v
+PACS-DICOM-Toolkit
+    Storage SCU
+        |
+        | Association Request
+        v
+Remote Storage SCP
+        |
+        | Association Accept
+        v
+PACS-DICOM-Toolkit
+        |
+        | C-STORE Request
+        v
+Remote Storage SCP
+        |
+        | C-STORE Response
+        v
 0x0000 Success
 ```
 
+## Day 14 — Storage SCP and DICOM Receive
+
+Day 14 extended the DICOM network module with Storage SCP functionality.
+
+PACS-DICOM-Toolkit can now receive DICOM objects from an external Storage SCU using C-STORE and save the received datasets to the local `received/` directory.
+
+```text
+External Storage SCU
+        |
+        | Association Request
+        v
+PACS-DICOM-Toolkit
+     Storage SCP
+        |
+        | Association Accept
+        v
+External Storage SCU
+        |
+        | C-STORE Request
+        v
+PACS-DICOM-Toolkit
+        |
+        | EVT_C_STORE
+        v
+Save DICOM Dataset
+        |
+        v
+received/<SOPInstanceUID>.dcm
+        |
+        | C-STORE Response
+        v
+0x0000 Success
+```
+
+Implemented features:
+
+- Start and stop the local Storage SCP from the application
+- Configure the Storage SCP listening port
+- Use the Local AE Title for the Storage SCP
+- Support DICOM Storage Presentation Contexts
+- Accept incoming DICOM Associations
+- Handle incoming C-STORE requests using `EVT_C_STORE`
+- Preserve DICOM File Meta information
+- Save received datasets using the SOP Instance UID as the filename
+- Store received DICOM files in the `received/` directory
+- Safely shut down the Storage SCP when the application closes
+
+The Storage SCP was tested using an external `storescu` client:
+
+```bash
+storescu -aet TEST_SCU -aec PACS_TOOLKIT \
+  127.0.0.1 11113 samples/test_image.dcm
+```
+
+The received DICOM object was successfully saved and reopened using pydicom, confirming that the received dataset remained a valid DICOM file.
+
 ## Next Step
 
-### Day 14 — Storage SCP and DICOM Receive
+### Day 15 — C-FIND Query
 
-The next step will extend PACS-DICOM-Toolkit with its own Storage SCP functionality.
+The next step will introduce DICOM Query functionality using C-FIND.
 
 Planned features:
 
-- Start a Storage SCP from the toolkit
-- Configure the local AE Title and listening port
-- Accept incoming DICOM Associations
-- Handle C-STORE requests
-- Receive DICOM datasets
-- Save received DICOM objects
-- Display receive status in the application
-- Safely stop the Storage SCP
+- Understand the DICOM Query/Retrieve service model
+- Configure a Query/Retrieve SCP connection
+- Create a C-FIND query dataset
+- Send C-FIND requests
+- Receive and process C-FIND responses
+- Search studies using patient and study information
+- Display query results in the application
+
+This will extend PACS-DICOM-Toolkit from DICOM storage communication toward practical PACS Query/Retrieve workflows.
 
 ## Disclaimer
 
