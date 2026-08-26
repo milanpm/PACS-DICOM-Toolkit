@@ -22,7 +22,11 @@ from PyQt5.QtWidgets import (
 
 from anonymizer import save_anonymized_dicom
 from dicom_loader import extract_metadata, load_dicom
-from dicom_network import send_dicom_file, verify_connection
+from dicom_network import (
+    send_dicom_file,
+    start_storage_scp,
+    verify_connection,
+)
 from windowing import apply_window
 from image_view import ImageView
 
@@ -40,6 +44,7 @@ class DicomViewer(QMainWindow):
         self.pixel_array = None
         self.current_file_path = None
         self.measurement_points = []
+        self.storage_server = None
 
     def connect_signals(self):
         """Connect UI events to viewer actions."""
@@ -85,6 +90,12 @@ class DicomViewer(QMainWindow):
         )
         self.store_button.clicked.connect(
             self.send_c_store
+        )
+        self.start_scp_button.clicked.connect(
+            self.start_storage_server
+        )
+        self.stop_scp_button.clicked.connect(
+            self.stop_storage_server
         )
 
     def setup_ui(self):
@@ -178,6 +189,14 @@ class DicomViewer(QMainWindow):
         self.store_button = QPushButton("Send C-STORE")
         self.store_button.setEnabled(False)
 
+        self.scp_port_spin = QSpinBox()
+        self.scp_port_spin.setRange(1, 65535)
+        self.scp_port_spin.setValue(11113)
+
+        self.start_scp_button = QPushButton("Start Storage SCP")
+        self.stop_scp_button = QPushButton("Stop Storage SCP")
+        self.stop_scp_button.setEnabled(False)
+
         self.network_status_label = QLabel("Network: Not tested")
 
         network_layout = QFormLayout()
@@ -199,6 +218,12 @@ class DicomViewer(QMainWindow):
         )
         network_layout.addRow(self.echo_button)
         network_layout.addRow(self.store_button)
+        network_layout.addRow(
+            "Storage SCP Port:",
+            self.scp_port_spin,
+        )
+        network_layout.addRow(self.start_scp_button)
+        network_layout.addRow(self.stop_scp_button)
         network_layout.addRow(self.network_status_label)
 
         window_layout = QFormLayout()
@@ -755,6 +780,84 @@ class DicomViewer(QMainWindow):
         self.network_status_label.setText(
             f"Network: {message}"
         )
+
+    def start_storage_server(self):
+        """Start the local DICOM Storage SCP."""
+        if self.storage_server is not None:
+            return
+
+        try:
+            local_ae_title = self.local_ae_input.text()
+            local_port = self.scp_port_spin.value()
+
+            storage_dir = Path.cwd() / "received"
+
+            self.storage_server = start_storage_scp(
+                local_ae_title=local_ae_title,
+                local_ip="0.0.0.0",
+                local_port=local_port,
+                storage_dir=storage_dir,
+            )
+
+            self.start_scp_button.setEnabled(False)
+            self.stop_scp_button.setEnabled(True)
+            self.scp_port_spin.setEnabled(False)
+
+            self.network_status_label.setText(
+                f"Storage SCP running on port {local_port}"
+            )
+            self.network_status_label.setStyleSheet(
+                "color: green;"
+            )
+
+        except Exception as error:
+            self.storage_server = None
+
+            QMessageBox.critical(
+                self,
+                "Storage SCP Error",
+                str(error),
+            )
+
+            self.network_status_label.setText(
+                f"Storage SCP failed: {error}"
+            )
+            self.network_status_label.setStyleSheet(
+                "color: red;"
+            )
+
+
+    def stop_storage_server(self):
+        """Stop the local DICOM Storage SCP."""
+        if self.storage_server is None:
+            return
+
+        try:
+            self.storage_server.shutdown()
+            self.storage_server.server_close()
+
+        finally:
+            self.storage_server = None
+
+            self.start_scp_button.setEnabled(True)
+            self.stop_scp_button.setEnabled(False)
+            self.scp_port_spin.setEnabled(True)
+
+            self.network_status_label.setText(
+                "Storage SCP stopped"
+            )
+            self.network_status_label.setStyleSheet(
+                "color: gray;"
+            )
+
+    def closeEvent(self, event):
+        """Stop the Storage SCP before closing the application."""
+        if self.storage_server is not None:
+            self.storage_server.shutdown()
+            self.storage_server.server_close()
+            self.storage_server = None
+
+        event.accept()
 
 def main():
     app = QApplication(sys.argv)

@@ -1,7 +1,12 @@
-from pydicom import dcmread
-from pynetdicom import AE
-from pynetdicom.sop_class import Verification
+from pathlib import Path
 
+from pydicom import dcmread
+from pynetdicom import (
+    AE,
+    AllStoragePresentationContexts,
+    evt,
+)
+from pynetdicom.sop_class import Verification
 
 def verify_connection(
     local_ae_title,
@@ -113,3 +118,64 @@ def send_dicom_file(
     finally:
         if association is not None and association.is_established:
             association.release()
+
+def handle_store(event, storage_dir):
+    """Handle an incoming C-STORE request and save the DICOM file."""
+    try:
+        dataset = event.dataset
+        dataset.file_meta = event.file_meta
+
+        storage_path = Path(storage_dir)
+        storage_path.mkdir(parents=True, exist_ok=True)
+
+        sop_instance_uid = str(dataset.SOPInstanceUID)
+
+        output_path = storage_path / f"{sop_instance_uid}.dcm"
+
+        dataset.save_as(
+            output_path,
+            enforce_file_format=True,
+        )
+
+        print(f"Received DICOM: {output_path}")
+
+        return 0x0000
+
+    except Exception as error:
+        print(f"C-STORE receive error: {error}")
+        return 0xC001
+
+def start_storage_scp(
+    local_ae_title,
+    local_ip,
+    local_port,
+    storage_dir,
+):
+    """Start a DICOM Storage SCP server."""
+    local_ae_title = local_ae_title.strip()
+    local_ip = local_ip.strip()
+    local_port = int(local_port)
+
+    ae = AE(ae_title=local_ae_title)
+
+    for context in AllStoragePresentationContexts:
+        ae.add_supported_context(
+            context.abstract_syntax,
+            context.transfer_syntax,
+        )
+
+    handlers = [
+        (
+            evt.EVT_C_STORE,
+            handle_store,
+            [storage_dir],
+        ),
+    ]
+
+    server = ae.start_server(
+        (local_ip, local_port),
+        block=False,
+        evt_handlers=handlers,
+    )
+
+    return server
