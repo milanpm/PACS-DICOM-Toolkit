@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -231,41 +232,71 @@ class DicomViewer(QMainWindow):
         window_layout.addRow("Window Width:", self.window_width_spin)
 
         # 오른쪽 제어 영역
-        control_layout = QVBoxLayout()
-        control_layout.addWidget(self.open_button)
-        control_layout.addWidget(self.save_png_button)
-        control_layout.addWidget(self.anonymize_button)
-        control_layout.addWidget(self.reset_view_button)
-        control_layout.addWidget(self.reset_window_button)
-        control_layout.addWidget(self.clear_roi_button)
-        control_layout.addWidget(self.zoom_label)
-        control_layout.addWidget(self.window_label)
-        control_layout.addWidget(self.pixel_info_label)
-        control_layout.addWidget(self.distance_label)
-        control_layout.addWidget(self.roi_label)
+        # Viewer tab
+        viewer_tab = QWidget()
+        viewer_layout = QVBoxLayout()
 
-        control_layout.addLayout(metadata_layout)
-        control_layout.addWidget(QLabel("Metadata Search"))
+        viewer_layout.addWidget(self.open_button)
+        viewer_layout.addWidget(self.save_png_button)
+        viewer_layout.addWidget(self.anonymize_button)
+        viewer_layout.addWidget(self.reset_view_button)
+        viewer_layout.addWidget(self.reset_window_button)
+        viewer_layout.addWidget(self.clear_roi_button)
+
+        viewer_layout.addSpacing(10)
+        viewer_layout.addWidget(self.zoom_label)
+        viewer_layout.addWidget(self.window_label)
+        viewer_layout.addWidget(self.pixel_info_label)
+        viewer_layout.addWidget(self.distance_label)
+        viewer_layout.addWidget(self.roi_label)
+
+        viewer_layout.addSpacing(20)
+        viewer_layout.addLayout(window_layout)
+        viewer_layout.addStretch()
+
+        viewer_tab.setLayout(viewer_layout)
+
+
+        # Metadata tab
+        metadata_tab = QWidget()
+        metadata_tab_layout = QVBoxLayout()
+
+        metadata_tab_layout.addLayout(metadata_layout)
+        metadata_tab_layout.addSpacing(20)
+        metadata_tab_layout.addWidget(QLabel("Metadata Search"))
 
         search_layout = QHBoxLayout()
         search_layout.addWidget(self.metadata_search_input)
         search_layout.addWidget(self.metadata_search_button)
 
-        control_layout.addLayout(search_layout)
-        control_layout.addWidget(self.metadata_search_result)
-        control_layout.addSpacing(20)
-        control_layout.addLayout(window_layout)
+        metadata_tab_layout.addLayout(search_layout)
+        metadata_tab_layout.addWidget(self.metadata_search_result)
+        metadata_tab_layout.addStretch()
 
-        control_layout.addSpacing(20)
-        control_layout.addWidget(QLabel("DICOM Network"))
-        control_layout.addLayout(network_layout)
+        metadata_tab.setLayout(metadata_tab_layout)
 
-        control_layout.addStretch()
+
+        # Network tab
+        network_tab = QWidget()
+        network_tab_layout = QVBoxLayout()
+
+        network_tab_layout.addLayout(network_layout)
+        network_tab_layout.addStretch()
+
+        network_tab.setLayout(network_tab_layout)
+
+
+        # Right-side tabs
+        self.tab_widget = QTabWidget()
+        self.tab_widget.addTab(viewer_tab, "Viewer")
+        self.tab_widget.addTab(metadata_tab, "Metadata")
+        self.tab_widget.addTab(network_tab, "Network")
+        self.tab_widget.setMinimumWidth(320)
 
         # 전체 화면 구성
         main_layout = QHBoxLayout()
         main_layout.addWidget(self.image_view, 1)
-        main_layout.addLayout(control_layout)
+        main_layout.addWidget(self.tab_widget)
 
         container = QWidget()
         container.setLayout(main_layout)
