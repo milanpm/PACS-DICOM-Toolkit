@@ -22,11 +22,12 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ## Current Status
 
-**Day 14 — Storage SCP and DICOM Receive Completed**
+**Day 14.5 — UI Tab Refactoring Completed**
 
 - Repository: `milanpm/PACS-DICOM-Toolkit`
 - Branch: `main`
-- Latest Day 14 commit: `7f751f0 Add DICOM Storage SCP receive`
+- Day 14 commit: `7f751f0 Add DICOM Storage SCP receive`
+- Day 14.5 commit: `121c3ad Refactor UI into Viewer Metadata and Network tabs`
 - Next step: **Day 15 — C-FIND Query**
 
 ## Features
@@ -286,6 +287,7 @@ received/<SOPInstanceUID>.dcm
 |   12 | DICOM Network and C-ECHO Verification | Completed |
 |   13 | C-STORE DICOM Send                    | Completed |
 |   14 | Storage SCP and DICOM Receive         | Completed |
+| 14.5 | UI Tab Refactoring                    | Completed |
 |   15 | C-FIND Query                          |  Planned  |
 |   16 | PACS Integration                      |  Planned  |
 
@@ -414,6 +416,50 @@ storescu -aet TEST_SCU -aec PACS_TOOLKIT \
 ```
 
 The received DICOM object was successfully saved and reopened using pydicom, confirming that the received dataset remained a valid DICOM file.
+
+## Day 14.5 — UI Tab Refactoring
+
+As the toolkit gained more viewer, metadata, and DICOM networking features, the control panel became increasingly crowded.
+
+The user interface was refactored using `QTabWidget` to separate the controls into three functional areas:
+
+- **Viewer** — DICOM loading, PNG export, anonymization, zoom, Window/Level, pixel/HU inspection, distance measurement, and ROI measurement
+- **Metadata** — DICOM metadata display and metadata search
+- **Network** — AE configuration, C-ECHO, C-STORE SCU, and Storage SCP controls
+
+The application now follows the following UI structure:
+
+```text
+PACS DICOM Toolkit
+|
++-- Image View
+|
++-- Control Tabs
+    |
+    +-- Viewer
+    |   +-- File operations
+    |   +-- View controls
+    |   +-- Window / Level
+    |   +-- Pixel / HU
+    |   +-- Distance
+    |   +-- ROI
+    |
+    +-- Metadata
+    |   +-- DICOM metadata
+    |   +-- Metadata search
+    |
+    +-- Network
+        +-- Local / Remote AE configuration
+        +-- C-ECHO
+        +-- C-STORE Send
+        +-- Storage SCP
+```
+
+This refactoring improves usability and separates the UI by responsibility without changing the existing DICOM processing or networking logic.
+
+Regression testing confirmed that the existing Viewer, Metadata, C-ECHO, C-STORE, and Storage SCP functionality continued to work after the UI refactoring.
+
+The new tab-based structure also prepares the application for upcoming PACS Query/Retrieve features.
 
 ## Next Step
 
