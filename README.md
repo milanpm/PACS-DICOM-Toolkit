@@ -22,13 +22,10 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ## Current Status
 
-**Day 14.5 — UI Tab Refactoring Completed**
+**Day 15 — C-FIND Study Query Completed**
 
-- Repository: `milanpm/PACS-DICOM-Toolkit`
-- Branch: `main`
-- Day 14 commit: `7f751f0 Add DICOM Storage SCP receive`
-- Day 14.5 commit: `121c3ad Refactor UI into Viewer Metadata and Network tabs`
-- Next step: **Day 15 — C-FIND Query**
+- Day 15 commit: `08aeb23 Add DICOM C-FIND study query`
+- Next step: **Day 16 — PACS Query/Retrieve Integration**
 
 ## Features
 
@@ -120,6 +117,16 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 - Return a successful C-STORE response after saving
 - Safely shut down the Storage SCP when the application closes
 
+#### Query SCU
+
+- Use the Study Root Query/Retrieve Information Model
+- Create and send Study-level C-FIND requests
+- Search by Patient ID, Patient Name, and Study Date
+- Process Pending C-FIND responses (`0xFF00`, `0xFF01`)
+- Handle final success (`0x0000`)
+- Treat zero-result queries as successful searches
+- Display Study results in the Network tab
+
 ## Viewer Controls
 
 | Action                         | Control                  |
@@ -149,6 +156,8 @@ PACS-DICOM-Toolkit
 │   ├── dicom_network.py
 │   ├── anonymizer.py
 │   └── windowing.py
+├── tools
+│   └── find_scp.py
 └── tests
 ```
 
@@ -288,8 +297,8 @@ received/<SOPInstanceUID>.dcm
 |   13 | C-STORE DICOM Send                    | Completed |
 |   14 | Storage SCP and DICOM Receive         | Completed |
 | 14.5 | UI Tab Refactoring                    | Completed |
-|   15 | C-FIND Query                          |  Planned  |
-|   16 | PACS Integration                      |  Planned  |
+|   15 | C-FIND Study Query                    | Completed |
+|   16 | PACS Query/Retrieve Integration       |  Planned  |
 
 ## Day 11 — Viewer Refactoring
 
@@ -461,23 +470,65 @@ Regression testing confirmed that the existing Viewer, Metadata, C-ECHO, C-STORE
 
 The new tab-based structure also prepares the application for upcoming PACS Query/Retrieve features.
 
-## Next Step
+## Day 15 — C-FIND Study Query
 
-### Day 15 — C-FIND Query
+Day 15 introduced DICOM Query functionality using C-FIND.
 
-The next step will introduce DICOM Query functionality using C-FIND.
+PACS-DICOM-Toolkit can now query a remote Query/Retrieve SCP for studies using the DICOM Study Root Query/Retrieve Information Model.
 
-Planned features:
+```text
+PACS-DICOM-Toolkit
+    C-FIND SCU
+        |
+        | Association Request
+        v
+Remote Query/Retrieve SCP
+        |
+        | C-FIND Request
+        | QueryRetrieveLevel = STUDY
+        v
+Study Search
+        |
+        | 0xFF00 Pending + Study Dataset
+        | 0xFF00 Pending + Study Dataset
+        | ...
+        | 0x0000 Final Success
+        v
+PACS-DICOM-Toolkit
+```
+The Study-level query supports the following matching keys:
 
-- Understand the DICOM Query/Retrieve service model
-- Configure a Query/Retrieve SCP connection
-- Create a C-FIND query dataset
-- Send C-FIND requests
-- Receive and process C-FIND responses
-- Search studies using patient and study information
-- Display query results in the application
+- Patient ID
+- Patient Name
+- Study Date
 
-This will extend PACS-DICOM-Toolkit from DICOM storage communication toward practical PACS Query/Retrieve workflows.
+The query also requests the following return keys:
+
+- Patient ID
+- Patient Name
+- Study Date
+- Study Description
+- Study Instance UID
+- Accession Number
+- Modalities in Study
+
+A key concept learned during C-FIND implementation was the difference between matching keys and return keys.
+
+```text
+Matching Key
+PatientID = "TEST001"
+        |
+        v
+Search for studies belonging to TEST001
+
+Return Key
+StudyDescription = ""
+StudyInstanceUID = ""
+ModalitiesInStudy = ""
+        |
+        v
+Request these values from the Query/Retrieve SCP
+```
 
 ## Disclaimer
 
