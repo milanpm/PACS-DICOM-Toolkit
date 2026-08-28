@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
 from anonymizer import save_anonymized_dicom
 from dicom_loader import extract_metadata, load_dicom
 from dicom_network import (
+    find_studies,
     send_dicom_file,
     start_storage_scp,
     verify_connection,
@@ -97,6 +98,9 @@ class DicomViewer(QMainWindow):
         )
         self.stop_scp_button.clicked.connect(
             self.stop_storage_server
+        )
+        self.find_button.clicked.connect(
+            self.send_c_find
         )
 
     def setup_ui(self):
@@ -200,6 +204,21 @@ class DicomViewer(QMainWindow):
 
         self.network_status_label = QLabel("Network: Not tested")
 
+        self.find_patient_id_input = QLineEdit()
+        self.find_patient_id_input.setPlaceholderText("Patient ID")
+
+        self.find_patient_name_input = QLineEdit()
+        self.find_patient_name_input.setPlaceholderText("Patient Name")
+
+        self.find_study_date_input = QLineEdit()
+        self.find_study_date_input.setPlaceholderText("YYYYMMDD")
+
+        self.find_button = QPushButton("Search Studies (C-FIND)")
+
+        self.find_result = QTextEdit()
+        self.find_result.setReadOnly(True)
+        self.find_result.setMinimumHeight(180)
+
         network_layout = QFormLayout()
         network_layout.addRow(
             "Local AE Title:",
@@ -226,6 +245,22 @@ class DicomViewer(QMainWindow):
         network_layout.addRow(self.start_scp_button)
         network_layout.addRow(self.stop_scp_button)
         network_layout.addRow(self.network_status_label)
+
+        network_layout.addRow(QLabel("Study Query"))
+        network_layout.addRow(
+            "Patient ID:",
+            self.find_patient_id_input,
+        )
+        network_layout.addRow(
+            "Patient Name:",
+            self.find_patient_name_input,
+        )
+        network_layout.addRow(
+            "Study Date:",
+            self.find_study_date_input,
+        )
+        network_layout.addRow(self.find_button)
+        network_layout.addRow(self.find_result)
 
         window_layout = QFormLayout()
         window_layout.addRow("Window Center:", self.window_center_spin)
@@ -889,6 +924,55 @@ class DicomViewer(QMainWindow):
             self.storage_server = None
 
         event.accept()
+
+    def send_c_find(self):
+        """Search studies from the remote PACS using C-FIND."""
+        success, results, message = find_studies(
+            local_ae_title=self.local_ae_input.text(),
+            remote_ae_title=self.remote_ae_input.text(),
+            remote_ip=self.remote_ip_input.text(),
+            remote_port=self.remote_port_spin.value(),
+            patient_id=self.find_patient_id_input.text(),
+            patient_name=self.find_patient_name_input.text(),
+            study_date=self.find_study_date_input.text(),
+        )
+
+        self.network_status_label.setText(message)
+
+        if not success:
+            self.find_result.setText(message)
+            return
+
+        if not results:
+            self.find_result.setText(
+                "No matching studies found."
+            )
+            return
+
+        lines = []
+
+        for index, dataset in enumerate(results, start=1):
+            lines.append(
+                f"Study {index}\n"
+                f"Patient ID: "
+                f"{getattr(dataset, 'PatientID', '')}\n"
+                f"Patient Name: "
+                f"{getattr(dataset, 'PatientName', '')}\n"
+                f"Study Date: "
+                f"{getattr(dataset, 'StudyDate', '')}\n"
+                f"Study Description: "
+                f"{getattr(dataset, 'StudyDescription', '')}\n"
+                f"Accession Number: "
+                f"{getattr(dataset, 'AccessionNumber', '')}\n"
+                f"Modalities: "
+                f"{getattr(dataset, 'ModalitiesInStudy', '')}\n"
+                f"Study Instance UID: "
+                f"{getattr(dataset, 'StudyInstanceUID', '')}"
+            )
+
+        self.find_result.setText(
+            "\n\n".join(lines)
+        )
 
 def main():
     app = QApplication(sys.argv)
