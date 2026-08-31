@@ -22,10 +22,11 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ## Current Status
 
-**Day 15 — C-FIND Study Query Completed**
+**Day 16 — PACS Query/Retrieve Integration Completed**
 
-- Day 15 commit: `08aeb23 Add DICOM C-FIND study query`
-- Next step: **Day 16 — PACS Query/Retrieve Integration**
+- Implemented hierarchical Study, Series, and Instance C-FIND queries
+- Connected Query/Retrieve workflows to the Network tab
+- Next step: **Day 17 — DICOM Retrieval with C-MOVE**
 
 ## Features
 
@@ -120,12 +121,18 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 #### Query SCU
 
 - Use the Study Root Query/Retrieve Information Model
-- Create and send Study-level C-FIND requests
-- Search by Patient ID, Patient Name, and Study Date
+- Create Study-level C-FIND requests
+- Search studies by Patient ID, Patient Name, and Study Date
+- Use Study Instance UID to search related Series
+- Create Series-level C-FIND requests
+- Return Series Number, Description, Modality, and Instance count
+- Use Study and Series Instance UIDs to search individual Instances
+- Create Image-level C-FIND requests for SOP Instances
+- Return SOP Class UID, SOP Instance UID, and Instance Number
 - Process Pending C-FIND responses (`0xFF00`, `0xFF01`)
 - Handle final success (`0x0000`)
 - Treat zero-result queries as successful searches
-- Display Study results in the Network tab
+- Display Study, Series, and Instance results in the Network tab
 
 ## Viewer Controls
 
@@ -298,7 +305,8 @@ received/<SOPInstanceUID>.dcm
 |   14 | Storage SCP and DICOM Receive         | Completed |
 | 14.5 | UI Tab Refactoring                    | Completed |
 |   15 | C-FIND Study Query                    | Completed |
-|   16 | PACS Query/Retrieve Integration       |  Planned  |
+|   16 | PACS Query/Retrieve Integration       | Completed |
+|   17 | DICOM Retrieval with C-MOVE           |  Planned  |
 
 ## Day 11 — Viewer Refactoring
 
@@ -529,6 +537,139 @@ ModalitiesInStudy = ""
         v
 Request these values from the Query/Retrieve SCP
 ```
+
+## Day 16 — PACS Query/Retrieve Integration
+
+Day 16 expanded the Study-level C-FIND implementation into a hierarchical PACS Query/Retrieve workflow.
+
+The application can now navigate the DICOM information model from a Study to its Series and individual SOP Instances.
+
+```text
+Study C-FIND
+    |
+    | StudyInstanceUID
+    v
+Series C-FIND
+    |
+    | StudyInstanceUID
+    | SeriesInstanceUID
+    v
+Image-level C-FIND
+    |
+    | SOPClassUID
+    | SOPInstanceUID
+    | InstanceNumber
+    v
+Individual DICOM Instances
+```
+
+### Study Query
+
+The Study query uses the following Query/Retrieve level:
+
+```python
+query.QueryRetrieveLevel = "STUDY"
+```
+
+Patient ID, Patient Name, and Study Date are used as matching keys. The returned Study Instance UID identifies the selected study and becomes the matching key for the Series query.
+
+### Series Query
+
+The Series query uses the selected Study Instance UID:
+
+```python
+query.QueryRetrieveLevel = "SERIES"
+query.StudyInstanceUID = study_instance_uid
+```
+
+The following Series information is requested:
+
+- Series Instance UID
+- Series Number
+- Series Description
+- Modality
+- Number of related Instances
+
+### Instance Query
+
+Individual SOP Instances are queried using the DICOM `IMAGE` Query/Retrieve level:
+
+```python
+query.QueryRetrieveLevel = "IMAGE"
+query.StudyInstanceUID = study_instance_uid
+query.SeriesInstanceUID = series_instance_uid
+```
+
+Although the application function is named `find_instances()`, the standard DICOM Query/Retrieve level is `IMAGE`.
+
+The query returns:
+
+- SOP Class UID
+- SOP Instance UID
+- Instance Number
+
+### Hierarchical Matching Keys
+
+| Query Level | Matching Keys |
+| ----------- | ------------- |
+| Study | Patient ID, Patient Name, Study Date |
+| Series | Study Instance UID |
+| Image | Study Instance UID, Series Instance UID |
+
+Each query result supplies the UID required by the next level.
+
+```text
+StudyInstanceUID
+        |
+        v
+SeriesInstanceUID
+        |
+        v
+SOPInstanceUID
+```
+
+### Network Tab Integration
+
+The Network tab now supports the complete hierarchical query workflow:
+
+1. Search for Studies.
+2. Use the returned Study Instance UID to search for Series.
+3. Select a Series Instance UID.
+4. Search for individual Instances.
+
+When a Study query returns exactly one result, its Study Instance UID is automatically copied into the Series Query field. The same behavior is used for a single Series result.
+
+A shared Query Results area displays Study, Series, or Instance results without adding multiple result panels to the Network tab.
+
+### Test Query/Retrieve SCP
+
+The test C-FIND SCP now supports three Query/Retrieve levels:
+
+- `STUDY`
+- `SERIES`
+- `IMAGE`
+
+The test hierarchy contains one Study, two Series, and four Instances.
+
+```text
+Test Study
+├── CT Axial
+│   ├── Instance 1
+│   ├── Instance 2
+│   └── Instance 3
+└── CT Scout
+    └── Instance 1
+```
+
+Testing confirmed:
+
+- One Study result
+- Two Series results
+- Three CT Axial Instance results
+- One CT Scout Instance result
+- Successful zero-result handling for unknown Study and Series UIDs
+
+This hierarchy prepares the toolkit for Day 17, where C-MOVE will retrieve the selected DICOM objects through the existing Storage SCP.
 
 ## Disclaimer
 

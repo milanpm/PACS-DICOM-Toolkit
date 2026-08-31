@@ -24,10 +24,10 @@ from PyQt5.QtWidgets import (
 from anonymizer import save_anonymized_dicom
 from dicom_loader import extract_metadata, load_dicom
 from dicom_network import (
+    find_instances,
+    find_series,
     find_studies,
     send_dicom_file,
-    start_storage_scp,
-    verify_connection,
 )
 from windowing import apply_window
 from image_view import ImageView
@@ -101,6 +101,12 @@ class DicomViewer(QMainWindow):
         )
         self.find_button.clicked.connect(
             self.send_c_find
+        )
+        self.find_series_button.clicked.connect(
+            self.send_series_find
+        )
+        self.find_instances_button.clicked.connect(
+            self.send_instance_find
         )
 
     def setup_ui(self):
@@ -215,6 +221,24 @@ class DicomViewer(QMainWindow):
 
         self.find_button = QPushButton("Search Studies (C-FIND)")
 
+        self.find_study_uid_input = QLineEdit()
+        self.find_study_uid_input.setPlaceholderText(
+            "Study Instance UID"
+        )
+
+        self.find_series_button = QPushButton(
+            "Search Series (C-FIND)"
+        )
+
+        self.find_series_uid_input = QLineEdit()
+        self.find_series_uid_input.setPlaceholderText(
+            "Series Instance UID"
+        )
+
+        self.find_instances_button = QPushButton(
+            "Search Instances (C-FIND)"
+        )
+
         self.find_result = QTextEdit()
         self.find_result.setReadOnly(True)
         self.find_result.setMinimumHeight(180)
@@ -260,6 +284,22 @@ class DicomViewer(QMainWindow):
             self.find_study_date_input,
         )
         network_layout.addRow(self.find_button)
+
+        network_layout.addRow(QLabel("Series Query"))
+        network_layout.addRow(
+            "Study Instance UID:",
+            self.find_study_uid_input,
+        )
+        network_layout.addRow(self.find_series_button)
+
+        network_layout.addRow(QLabel("Instance Query"))
+        network_layout.addRow(
+            "Series Instance UID:",
+            self.find_series_uid_input,
+        )
+        network_layout.addRow(self.find_instances_button)
+
+        network_layout.addRow(QLabel("Query Results"))
         network_layout.addRow(self.find_result)
 
         window_layout = QFormLayout()
@@ -927,6 +967,8 @@ class DicomViewer(QMainWindow):
 
     def send_c_find(self):
         """Search studies from the remote PACS using C-FIND."""
+        self.find_study_uid_input.clear()
+        self.find_series_uid_input.clear()
         success, results, message = find_studies(
             local_ae_title=self.local_ae_input.text(),
             remote_ae_title=self.remote_ae_input.text(),
@@ -968,6 +1010,123 @@ class DicomViewer(QMainWindow):
                 f"{getattr(dataset, 'ModalitiesInStudy', '')}\n"
                 f"Study Instance UID: "
                 f"{getattr(dataset, 'StudyInstanceUID', '')}"
+            )
+
+        if len(results) == 1:
+            study_instance_uid = str(
+                getattr(
+                    results[0],
+                    "StudyInstanceUID",
+                    "",
+                )
+            ).strip()
+
+            self.find_study_uid_input.setText(
+                study_instance_uid
+            )
+
+        self.find_result.setText(
+            "\n\n".join(lines)
+        )
+
+    def send_series_find(self):
+        """Search series in the selected study using C-FIND."""
+        self.find_series_uid_input.clear()
+
+        success, results, message = find_series(
+            local_ae_title=self.local_ae_input.text(),
+            remote_ae_title=self.remote_ae_input.text(),
+            remote_ip=self.remote_ip_input.text(),
+            remote_port=self.remote_port_spin.value(),
+            study_instance_uid=(
+                self.find_study_uid_input.text()
+            ),
+        )
+
+        self.network_status_label.setText(message)
+
+        if not success:
+            self.find_result.setText(message)
+            return
+
+        if not results:
+            self.find_result.setText(
+                "No matching series found."
+            )
+            return
+
+        lines = []
+
+        for index, dataset in enumerate(results, start=1):
+            lines.append(
+                f"Series {index}\n"
+                f"Series Number: "
+                f"{getattr(dataset, 'SeriesNumber', '')}\n"
+                f"Description: "
+                f"{getattr(dataset, 'SeriesDescription', '')}\n"
+                f"Modality: "
+                f"{getattr(dataset, 'Modality', '')}\n"
+                f"Instances: "
+                f"{getattr(dataset, 'NumberOfSeriesRelatedInstances', '')}\n"
+                f"Series Instance UID: "
+                f"{getattr(dataset, 'SeriesInstanceUID', '')}"
+            )
+
+        if len(results) == 1:
+            series_instance_uid = str(
+                getattr(
+                    results[0],
+                    "SeriesInstanceUID",
+                    "",
+                )
+            ).strip()
+
+            self.find_series_uid_input.setText(
+                series_instance_uid
+            )
+
+        self.find_result.setText(
+            "\n\n".join(lines)
+        )
+
+    def send_instance_find(self):
+        """Search instances in the selected series using C-FIND."""
+        success, results, message = find_instances(
+            local_ae_title=self.local_ae_input.text(),
+            remote_ae_title=self.remote_ae_input.text(),
+            remote_ip=self.remote_ip_input.text(),
+            remote_port=self.remote_port_spin.value(),
+            study_instance_uid=(
+                self.find_study_uid_input.text()
+            ),
+            series_instance_uid=(
+                self.find_series_uid_input.text()
+            ),
+        )
+
+        self.network_status_label.setText(message)
+
+        if not success:
+            self.find_result.setText(message)
+            return
+
+        if not results:
+            self.find_result.setText(
+                "No matching instances found."
+            )
+            return
+
+        lines = []
+
+        for index, dataset in enumerate(results, start=1):
+            lines.append(
+                f"Instance {index}\n"
+                f"Instance Number: "
+                f"{getattr(dataset, 'InstanceNumber', '')}\n"
+                f"SOP Class UID: "
+                f"{getattr(dataset, 'SOPClassUID', '')}\n"
+                f"SOP Instance UID: "
+                f"{getattr(dataset, 'SOPInstanceUID', '')}"
             )
 
         self.find_result.setText(

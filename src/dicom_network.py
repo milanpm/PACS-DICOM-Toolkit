@@ -158,6 +158,202 @@ def find_studies(
             association.release()
 
 
+def find_series(
+    local_ae_title,
+    remote_ae_title,
+    remote_ip,
+    remote_port,
+    study_instance_uid,
+):
+    """Search series in a study from a remote PACS using DICOM C-FIND."""
+    association = None
+
+    try:
+        local_ae_title = local_ae_title.strip()
+        remote_ae_title = remote_ae_title.strip()
+        remote_ip = remote_ip.strip()
+        remote_port = int(remote_port)
+        study_instance_uid = study_instance_uid.strip()
+
+        if not study_instance_uid:
+            return False, [], "Study Instance UID is required."
+
+        ae = AE(ae_title=local_ae_title)
+        ae.add_requested_context(
+            StudyRootQueryRetrieveInformationModelFind
+        )
+
+        ae.acse_timeout = 5
+        ae.dimse_timeout = 10
+        ae.network_timeout = 10
+
+        association = ae.associate(
+            remote_ip,
+            remote_port,
+            ae_title=remote_ae_title,
+        )
+
+        if not association.is_established:
+            return False, [], "DICOM Association failed."
+
+        query = Dataset()
+        query.QueryRetrieveLevel = "SERIES"
+
+        # Matching key
+        query.StudyInstanceUID = study_instance_uid
+
+        # Return keys
+        query.SeriesInstanceUID = ""
+        query.SeriesNumber = ""
+        query.SeriesDescription = ""
+        query.Modality = ""
+        query.NumberOfSeriesRelatedInstances = ""
+
+        results = []
+
+        responses = association.send_c_find(
+            query,
+            StudyRootQueryRetrieveInformationModelFind,
+        )
+
+        for status, identifier in responses:
+            if status is None:
+                return (
+                    False,
+                    results,
+                    "No valid C-FIND response was received.",
+                )
+
+            status_code = int(status.Status)
+
+            if status_code in (0xFF00, 0xFF01):
+                if identifier is not None:
+                    results.append(identifier)
+
+            elif status_code == 0x0000:
+                break
+
+            else:
+                return (
+                    False,
+                    results,
+                    f"C-FIND Failed: 0x{status_code:04X}",
+                )
+
+        return (
+            True,
+            results,
+            f"C-FIND completed: {len(results)} series found.",
+        )
+
+    except (OSError, TypeError, ValueError) as error:
+        return False, [], f"C-FIND error: {error}"
+
+    finally:
+        if association is not None and association.is_established:
+            association.release()
+
+
+def find_instances(
+    local_ae_title,
+    remote_ae_title,
+    remote_ip,
+    remote_port,
+    study_instance_uid,
+    series_instance_uid,
+):
+    """Search instances in a series using DICOM C-FIND."""
+    association = None
+
+    try:
+        local_ae_title = local_ae_title.strip()
+        remote_ae_title = remote_ae_title.strip()
+        remote_ip = remote_ip.strip()
+        remote_port = int(remote_port)
+        study_instance_uid = study_instance_uid.strip()
+        series_instance_uid = series_instance_uid.strip()
+
+        if not study_instance_uid:
+            return False, [], "Study Instance UID is required."
+
+        if not series_instance_uid:
+            return False, [], "Series Instance UID is required."
+
+        ae = AE(ae_title=local_ae_title)
+        ae.add_requested_context(
+            StudyRootQueryRetrieveInformationModelFind
+        )
+
+        ae.acse_timeout = 5
+        ae.dimse_timeout = 10
+        ae.network_timeout = 10
+
+        association = ae.associate(
+            remote_ip,
+            remote_port,
+            ae_title=remote_ae_title,
+        )
+
+        if not association.is_established:
+            return False, [], "DICOM Association failed."
+
+        query = Dataset()
+        query.QueryRetrieveLevel = "IMAGE"
+
+        # Matching keys
+        query.StudyInstanceUID = study_instance_uid
+        query.SeriesInstanceUID = series_instance_uid
+
+        # Return keys
+        query.SOPClassUID = ""
+        query.SOPInstanceUID = ""
+        query.InstanceNumber = ""
+
+        results = []
+
+        responses = association.send_c_find(
+            query,
+            StudyRootQueryRetrieveInformationModelFind,
+        )
+
+        for status, identifier in responses:
+            if status is None:
+                return (
+                    False,
+                    results,
+                    "No valid C-FIND response was received.",
+                )
+
+            status_code = int(status.Status)
+
+            if status_code in (0xFF00, 0xFF01):
+                if identifier is not None:
+                    results.append(identifier)
+
+            elif status_code == 0x0000:
+                break
+
+            else:
+                return (
+                    False,
+                    results,
+                    f"C-FIND Failed: 0x{status_code:04X}",
+                )
+
+        return (
+            True,
+            results,
+            f"C-FIND completed: {len(results)} instance(s) found.",
+        )
+
+    except (OSError, TypeError, ValueError) as error:
+        return False, [], f"C-FIND error: {error}"
+
+    finally:
+        if association is not None and association.is_established:
+            association.release()
+
+
 def send_dicom_file(
     file_path,
     local_ae_title,
