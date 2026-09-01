@@ -22,11 +22,13 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ## Current Status
 
-**Day 16 — PACS Query/Retrieve Integration Completed**
+**Day 17 — DICOM Retrieval with C-MOVE Completed**
 
-- Implemented hierarchical Study, Series, and Instance C-FIND queries
-- Connected Query/Retrieve workflows to the Network tab
-- Next step: **Day 17 — DICOM Retrieval with C-MOVE**
+- Implemented Study- and Series-level C-MOVE retrieval
+- Connected C-MOVE retrieval to the existing Storage SCP
+- Added Study and Series retrieval controls to the Network tab
+- Verified C-STORE delivery and DICOM file storage in `received/`
+- Next step: **Day 18 — DICOM Retrieval with C-GET**
 
 ## Features
 
@@ -306,7 +308,8 @@ received/<SOPInstanceUID>.dcm
 | 14.5 | UI Tab Refactoring                    | Completed |
 |   15 | C-FIND Study Query                    | Completed |
 |   16 | PACS Query/Retrieve Integration       | Completed |
-|   17 | DICOM Retrieval with C-MOVE           |  Planned  |
+|   17 | DICOM Retrieval with C-MOVE           | Completed |
+|   18 | DICOM Retrieval with C-GET            |  Planned  |
 
 ## Day 11 — Viewer Refactoring
 
@@ -669,7 +672,157 @@ Testing confirmed:
 - One CT Scout Instance result
 - Successful zero-result handling for unknown Study and Series UIDs
 
-This hierarchy prepares the toolkit for Day 17, where C-MOVE will retrieve the selected DICOM objects through the existing Storage SCP.
+The UIDs returned by this hierarchy are used by Day 17 C-MOVE requests to select the Study or Series to retrieve.
+
+## Day 17 — DICOM Retrieval with C-MOVE
+
+Day 17 introduced DICOM retrieval using C-MOVE.
+
+The application can now request all DICOM instances belonging to a selected Study or Series. The remote Query/Retrieve SCP sends the matching instances to the existing local Storage SCP using separate C-STORE sub-operations.
+
+```text
+PACS-DICOM-Toolkit
+    C-MOVE SCU
+        |
+        | C-MOVE Request
+        | Move Destination = PACS_TOOLKIT
+        v
+Remote Query/Retrieve SCP
+    C-MOVE SCP / C-STORE SCU
+        |
+        | New DICOM Association
+        | C-STORE Requests
+        v
+Local Storage SCP
+    AE Title: PACS_TOOLKIT
+    Port: 11113
+        |
+        v
+received/
+```
+
+Unlike C-GET, C-MOVE does not return DICOM datasets over the original Query/Retrieve association. The remote C-MOVE SCP opens a separate association with the configured destination Storage SCP and transfers the matching instances using C-STORE.
+
+### Study Retrieval
+
+A Study-level C-MOVE request uses the selected Study Instance UID:
+
+```python
+identifier = Dataset()
+identifier.QueryRetrieveLevel = "STUDY"
+identifier.StudyInstanceUID = study_instance_uid
+```
+
+The request retrieves every matching SOP Instance in the selected Study.
+
+```python
+responses = association.send_c_move(
+    identifier,
+    move_destination_ae_title,
+    StudyRootQueryRetrieveInformationModelMove,
+)
+```
+
+### Series Retrieval
+
+A Series-level C-MOVE request requires both the Study Instance UID and Series Instance UID:
+
+```python
+identifier = Dataset()
+identifier.QueryRetrieveLevel = "SERIES"
+identifier.StudyInstanceUID = study_instance_uid
+identifier.SeriesInstanceUID = series_instance_uid
+```
+
+This allows the application to retrieve only the DICOM instances belonging to the selected Series.
+
+### Move Destination
+
+The C-MOVE SCP must know the network address of the destination Storage SCP before it can transfer any DICOM instances.
+
+The local test configuration uses:
+
+| Setting | Value |
+| ------- | ----- |
+| Move Destination AE Title | `PACS_TOOLKIT` |
+| Storage SCP IP | `127.0.0.1` |
+| Storage SCP Port | `11113` |
+| Storage Directory | `received/` |
+
+If the Move Destination AE Title is unknown, the C-MOVE SCP returns:
+
+```text
+0xA801 — Move Destination unknown
+```
+
+### C-MOVE Response Handling
+
+The application monitors the number of remaining, completed, failed, and warning sub-operations returned with C-MOVE responses.
+
+```python
+status.NumberOfRemainingSuboperations
+status.NumberOfCompletedSuboperations
+status.NumberOfFailedSuboperations
+status.NumberOfWarningSuboperations
+```
+
+The main response statuses handled by the application include:
+
+| Status | Meaning |
+| ------ | ------- |
+| `0xFF00` | Pending |
+| `0xFF01` | Pending with optional key warning |
+| `0x0000` | Success |
+| `0xB000` | Completed with warnings |
+| `0xA801` | Move Destination unknown |
+
+### Network Tab Integration
+
+The Network tab now provides two retrieval controls:
+
+- `Retrieve Study (C-MOVE)`
+- `Retrieve Series (C-MOVE)`
+
+The Study retrieval button uses the Study Instance UID field. The Series retrieval button uses both the Study Instance UID and Series Instance UID fields.
+
+The local Storage SCP must be running before a retrieval request is sent. If it is not running, the application displays:
+
+```text
+Start the local Storage SCP before C-MOVE.
+```
+
+The Query Results area displays the retrieval level and sub-operation counts.
+
+```text
+C-MOVE completed: 4 completed, 0 failed, 0 warning.
+
+Query Retrieve Level: STUDY
+Completed: 4
+Failed: 0
+Warnings: 0
+Remaining: 0
+Storage Directory: received/
+```
+
+### Test Query/Retrieve SCP
+
+The test Query/Retrieve SCP now supports:
+
+- Hierarchical C-FIND at the `STUDY`, `SERIES`, and `IMAGE` levels
+- C-MOVE at the `STUDY` and `SERIES` levels
+- C-STORE transmission to `PACS_TOOLKIT:11113`
+
+A sample DICOM dataset is copied and assigned the test Study, Series, and SOP Instance UIDs before transmission.
+
+Testing confirmed:
+
+- Study C-MOVE retrieved four DICOM instances
+- First Series C-MOVE retrieved three DICOM instances
+- Second Series C-MOVE retrieved one DICOM instance
+- Unknown Series UID completed successfully with zero matching instances
+- Unknown Move Destination returned `0xA801`
+- Storage SCP received and saved the transferred files in `received/`
+- C-MOVE was blocked in the UI when the local Storage SCP was not running
 
 ## Disclaimer
 

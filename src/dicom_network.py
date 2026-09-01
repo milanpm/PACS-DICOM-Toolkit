@@ -1,3 +1,14 @@
+"""
+File Name: dicom_network.py
+Created Date: 2026-08-24
+Modified Date: 2026-09-01
+Author: Alex
+Description:
+    Provides DICOM networking functions for C-ECHO, C-STORE,
+    Storage SCP, hierarchical C-FIND, and C-MOVE operations used
+    by the PACS DICOM Toolkit.
+"""
+
 from pathlib import Path
 
 from pydicom import dcmread
@@ -9,6 +20,7 @@ from pynetdicom import (
 )
 from pynetdicom.sop_class import (
     StudyRootQueryRetrieveInformationModelFind,
+    StudyRootQueryRetrieveInformationModelMove,
     Verification,
 )
 
@@ -348,6 +360,187 @@ def find_instances(
 
     except (OSError, TypeError, ValueError) as error:
         return False, [], f"C-FIND error: {error}"
+
+    finally:
+        if association is not None and association.is_established:
+            association.release()
+
+
+def move_instances(
+    local_ae_title,
+    remote_ae_title,
+    remote_ip,
+    remote_port,
+    move_destination_ae_title,
+    query_level,
+    study_instance_uid,
+    series_instance_uid="",
+):
+    """Retrieve DICOM instances using C-MOVE."""
+    association = None
+
+    try:
+        local_ae_title = local_ae_title.strip()
+        remote_ae_title = remote_ae_title.strip()
+        remote_ip = remote_ip.strip()
+        remote_port = int(remote_port)
+        move_destination_ae_title = (
+            move_destination_ae_title.strip()
+        )
+        query_level = query_level.strip().upper()
+        study_instance_uid = study_instance_uid.strip()
+        series_instance_uid = series_instance_uid.strip()
+
+        if not move_destination_ae_title:
+            return (
+                False,
+                {},
+                "Move Destination AE Title is required.",
+            )
+
+        if query_level not in ("STUDY", "SERIES"):
+            return (
+                False,
+                {},
+                "Query Retrieve Level must be STUDY or SERIES.",
+            )
+
+        if not study_instance_uid:
+            return (
+                False,
+                {},
+                "Study Instance UID is required.",
+            )
+
+        if query_level == "SERIES" and not series_instance_uid:
+            return (
+                False,
+                {},
+                "Series Instance UID is required.",
+            )
+
+        ae = AE(ae_title=local_ae_title)
+        ae.add_requested_context(
+            StudyRootQueryRetrieveInformationModelMove
+        )
+
+        ae.acse_timeout = 5
+        ae.dimse_timeout = 30
+        ae.network_timeout = 30
+
+        association = ae.associate(
+            remote_ip,
+            remote_port,
+            ae_title=remote_ae_title,
+        )
+
+        if not association.is_established:
+            return False, {}, "DICOM Association failed."
+
+        identifier = Dataset()
+        identifier.QueryRetrieveLevel = query_level
+        identifier.StudyInstanceUID = study_instance_uid
+
+        if query_level == "SERIES":
+            identifier.SeriesInstanceUID = series_instance_uid
+
+        counts = {
+            "remaining": 0,
+            "completed": 0,
+            "failed": 0,
+            "warning": 0,
+        }
+
+        responses = association.send_c_move(
+            identifier,
+            move_destination_ae_title,
+            StudyRootQueryRetrieveInformationModelMove,
+        )
+
+        for status, _ in responses:
+            if status is None:
+                return (
+                    False,
+                    counts,
+                    "No valid C-MOVE response was received.",
+                )
+
+            status_code = int(status.Status)
+
+            counts["remaining"] = int(
+                getattr(
+                    status,
+                    "NumberOfRemainingSuboperations",
+                    0,
+                )
+                or 0
+            )
+            counts["completed"] = int(
+                getattr(
+                    status,
+                    "NumberOfCompletedSuboperations",
+                    0,
+                )
+                or 0
+            )
+            counts["failed"] = int(
+                getattr(
+                    status,
+                    "NumberOfFailedSuboperations",
+                    0,
+                )
+                or 0
+            )
+            counts["warning"] = int(
+                getattr(
+                    status,
+                    "NumberOfWarningSuboperations",
+                    0,
+                )
+                or 0
+            )
+
+            if status_code in (0xFF00, 0xFF01):
+                continue
+
+            if status_code == 0x0000:
+                return (
+                    True,
+                    counts,
+                    (
+                        "C-MOVE completed: "
+                        f"{counts['completed']} completed, "
+                        f"{counts['failed']} failed, "
+                        f"{counts['warning']} warning."
+                    ),
+                )
+
+            if status_code == 0xB000:
+                return (
+                    True,
+                    counts,
+                    (
+                        "C-MOVE completed with warnings: "
+                        f"{counts['completed']} completed, "
+                        f"{counts['failed']} failed, "
+                        f"{counts['warning']} warning."
+                    ),
+                )
+
+            return (
+                False,
+                counts,
+                f"C-MOVE failed: 0x{status_code:04X}",
+            )
+
+        return (
+            False,
+            counts,
+            "C-MOVE ended without a final response.",
+        )
+
+    except (OSError, TypeError, ValueError) as error:
+        return False, {}, f"C-MOVE error: {error}"
 
     finally:
         if association is not None and association.is_established:

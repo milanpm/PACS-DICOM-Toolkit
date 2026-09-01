@@ -1,8 +1,91 @@
+"""
+File Name: find_scp.py
+Created Date: 2026-08-24
+Modified Date: 2026-09-01
+Author: Alex
+Description:
+    Provides a test DICOM Query/Retrieve SCP supporting hierarchical
+    C-FIND and C-MOVE operations for local PACS integration testing.
+"""
+
+from copy import deepcopy
+from pathlib import Path
+
+from pydicom import dcmread
 from pydicom.dataset import Dataset
-from pynetdicom import AE, evt
+from pynetdicom import (
+    AE,
+    StoragePresentationContexts,
+    evt,
+)
 from pynetdicom.sop_class import (
     StudyRootQueryRetrieveInformationModelFind,
+    StudyRootQueryRetrieveInformationModelMove,
 )
+
+
+def create_test_instances():
+    """Create test instances for C-MOVE from a sample DICOM file."""
+    project_dir = Path(__file__).resolve().parents[1]
+    sample_path = project_dir / "samples" / "test_image.dcm"
+
+    source = dcmread(sample_path)
+
+    study_instance_uid = "1.2.826.0.1.3680043.8.498.1001"
+
+    instance_data = [
+        (
+            "1.2.826.0.1.3680043.8.498.2001",
+            "1.2.826.0.1.3680043.8.498.3001",
+            "1",
+        ),
+        (
+            "1.2.826.0.1.3680043.8.498.2001",
+            "1.2.826.0.1.3680043.8.498.3002",
+            "2",
+        ),
+        (
+            "1.2.826.0.1.3680043.8.498.2001",
+            "1.2.826.0.1.3680043.8.498.3003",
+            "3",
+        ),
+        (
+            "1.2.826.0.1.3680043.8.498.2002",
+            "1.2.826.0.1.3680043.8.498.4001",
+            "1",
+        ),
+    ]
+
+    instances = []
+
+    for series_uid, sop_instance_uid, instance_number in instance_data:
+        instance = deepcopy(source)
+
+        instance.PatientID = "TEST001"
+        instance.PatientName = "TEST^PATIENT"
+        instance.StudyDate = "20260828"
+        instance.StudyDescription = "Test Study"
+        instance.AccessionNumber = "ACC001"
+        instance.StudyInstanceUID = study_instance_uid
+        instance.SeriesInstanceUID = series_uid
+        instance.SOPInstanceUID = sop_instance_uid
+        instance.InstanceNumber = instance_number
+
+        if series_uid.endswith("2001"):
+            instance.SeriesNumber = "1"
+            instance.SeriesDescription = "CT Axial"
+        else:
+            instance.SeriesNumber = "2"
+            instance.SeriesDescription = "CT Scout"
+
+        if instance.file_meta is not None:
+            instance.file_meta.MediaStorageSOPInstanceUID = (
+                sop_instance_uid
+            )
+
+        instances.append(instance)
+
+    return instances
 
 
 def handle_find(event):
@@ -166,6 +249,89 @@ def handle_find(event):
     yield 0xC000, None
 
 
+def handle_move(event):
+    """Handle incoming Study Root C-MOVE requests."""
+    identifier = event.identifier
+
+    print("C-MOVE request received")
+    raw_destination = event.move_destination
+
+    if isinstance(raw_destination, bytes):
+        move_destination = raw_destination.decode(
+            "ascii",
+            errors="ignore",
+        ).strip()
+    else:
+        move_destination = str(raw_destination).strip()
+
+    print(f"Raw Move Destination: {raw_destination!r}")
+    print(f"Move Destination: {move_destination}")
+    print(identifier)
+
+    if move_destination != "PACS_TOOLKIT":
+        print(f"Unknown Move Destination: {move_destination}")
+        yield (None, None)
+        return
+
+    # Destination Storage SCP address
+    yield ("127.0.0.1", 11113)
+
+    query_level = str(
+        getattr(identifier, "QueryRetrieveLevel", "")
+    ).strip().upper()
+
+    study_instance_uid = str(
+        getattr(identifier, "StudyInstanceUID", "")
+    ).strip()
+
+    series_instance_uid = str(
+        getattr(identifier, "SeriesInstanceUID", "")
+    ).strip()
+
+    expected_study_uid = "1.2.826.0.1.3680043.8.498.1001"
+
+    instances = create_test_instances()
+    matching_instances = []
+
+    if query_level == "STUDY":
+        if study_instance_uid == expected_study_uid:
+            matching_instances = instances
+
+    elif query_level == "SERIES":
+        if study_instance_uid == expected_study_uid:
+            matching_instances = [
+                instance
+                for instance in instances
+                if str(instance.SeriesInstanceUID)
+                == series_instance_uid
+            ]
+
+    else:
+        print(f"Unsupported QueryRetrieveLevel: {query_level}")
+        yield 0
+        yield 0xC000, None
+        return
+
+    print(
+        f"C-MOVE matched {len(matching_instances)} instance(s)"
+    )
+
+    # Number of required C-STORE sub-operations
+    yield len(matching_instances)
+
+    for instance in matching_instances:
+        if event.is_cancelled:
+            yield 0xFE00, None
+            return
+
+        print(
+            "Sending instance: "
+            f"{instance.SOPInstanceUID}"
+        )
+
+        yield 0xFF00, instance
+
+
 def main():
     ae = AE(ae_title="TEST_PACS")
 
@@ -173,16 +339,28 @@ def main():
         StudyRootQueryRetrieveInformationModelFind
     )
 
+    ae.add_supported_context(
+        StudyRootQueryRetrieveInformationModelMove
+    )
+
+    ae.requested_contexts = StoragePresentationContexts
+
     handlers = [
         (
             evt.EVT_C_FIND,
             handle_find,
         ),
+        (
+            evt.EVT_C_MOVE,
+            handle_move,
+        ),
     ]
 
-    print("Starting C-FIND SCP")
+    print("Starting Query/Retrieve SCP")
+    print("Services: C-FIND, C-MOVE")
     print("AE Title: TEST_PACS")
     print("Port: 11112")
+    print("Move Destination: PACS_TOOLKIT -> 127.0.0.1:11113")
 
     ae.start_server(
         ("127.0.0.1", 11112),

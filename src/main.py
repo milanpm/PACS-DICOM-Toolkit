@@ -1,3 +1,14 @@
+"""
+File Name: main.py
+Created Date: 2026-08-24
+Modified Date: 2026-09-01
+Author: Alex
+Description:
+    Provides the PyQt5 user interface for viewing, inspecting,
+    processing, querying, and retrieving DICOM files using the
+    PACS DICOM Toolkit.
+"""
+
 import sys
 from pathlib import Path
 
@@ -27,7 +38,10 @@ from dicom_network import (
     find_instances,
     find_series,
     find_studies,
+    move_instances,
     send_dicom_file,
+    start_storage_scp,
+    verify_connection,
 )
 from windowing import apply_window
 from image_view import ImageView
@@ -40,6 +54,7 @@ class DicomViewer(QMainWindow):
         self.setup_ui()
         self.connect_signals()
 
+
     def initialize_state(self):
         """Initialize DICOM data and measurement state."""
         self.dataset = None
@@ -47,6 +62,7 @@ class DicomViewer(QMainWindow):
         self.current_file_path = None
         self.measurement_points = []
         self.storage_server = None
+
 
     def connect_signals(self):
         """Connect UI events to viewer actions."""
@@ -108,6 +124,13 @@ class DicomViewer(QMainWindow):
         self.find_instances_button.clicked.connect(
             self.send_instance_find
         )
+        self.move_study_button.clicked.connect(
+            self.send_study_move
+        )
+        self.move_series_button.clicked.connect(
+            self.send_series_move
+        )
+
 
     def setup_ui(self):
         """Create and arrange viewer widgets."""
@@ -220,7 +243,9 @@ class DicomViewer(QMainWindow):
         self.find_study_date_input.setPlaceholderText("YYYYMMDD")
 
         self.find_button = QPushButton("Search Studies (C-FIND)")
-
+        self.move_study_button = QPushButton(
+            "Retrieve Study (C-MOVE)"
+        )
         self.find_study_uid_input = QLineEdit()
         self.find_study_uid_input.setPlaceholderText(
             "Study Instance UID"
@@ -229,7 +254,9 @@ class DicomViewer(QMainWindow):
         self.find_series_button = QPushButton(
             "Search Series (C-FIND)"
         )
-
+        self.move_series_button = QPushButton(
+            "Retrieve Series (C-MOVE)"
+        )
         self.find_series_uid_input = QLineEdit()
         self.find_series_uid_input.setPlaceholderText(
             "Series Instance UID"
@@ -290,6 +317,7 @@ class DicomViewer(QMainWindow):
             "Study Instance UID:",
             self.find_study_uid_input,
         )
+        network_layout.addRow(self.move_study_button)
         network_layout.addRow(self.find_series_button)
 
         network_layout.addRow(QLabel("Instance Query"))
@@ -297,6 +325,7 @@ class DicomViewer(QMainWindow):
             "Series Instance UID:",
             self.find_series_uid_input,
         )
+        network_layout.addRow(self.move_series_button)
         network_layout.addRow(self.find_instances_button)
 
         network_layout.addRow(QLabel("Query Results"))
@@ -1089,6 +1118,7 @@ class DicomViewer(QMainWindow):
             "\n\n".join(lines)
         )
 
+
     def send_instance_find(self):
         """Search instances in the selected series using C-FIND."""
         success, results, message = find_instances(
@@ -1132,6 +1162,70 @@ class DicomViewer(QMainWindow):
         self.find_result.setText(
             "\n\n".join(lines)
         )
+
+
+    def send_study_move(self):
+        """Retrieve all instances in the selected study."""
+        self.send_c_move("STUDY")
+
+
+    def send_series_move(self):
+        """Retrieve all instances in the selected series."""
+        self.send_c_move("SERIES")
+
+
+    def send_c_move(self, query_level):
+        """Request DICOM retrieval using C-MOVE."""
+        if self.storage_server is None:
+            message = (
+                "Start the local Storage SCP before C-MOVE."
+            )
+            self.network_status_label.setText(message)
+            QMessageBox.warning(
+                self,
+                "C-MOVE Error",
+                message,
+            )
+            return
+
+        success, counts, message = move_instances(
+            local_ae_title=self.local_ae_input.text(),
+            remote_ae_title=self.remote_ae_input.text(),
+            remote_ip=self.remote_ip_input.text(),
+            remote_port=self.remote_port_spin.value(),
+            move_destination_ae_title=(
+                self.local_ae_input.text()
+            ),
+            query_level=query_level,
+            study_instance_uid=(
+                self.find_study_uid_input.text()
+            ),
+            series_instance_uid=(
+                self.find_series_uid_input.text()
+            ),
+        )
+
+        self.network_status_label.setText(message)
+
+        result_text = (
+            f"{message}\n\n"
+            f"Query Retrieve Level: {query_level}\n"
+            f"Completed: {counts.get('completed', 0)}\n"
+            f"Failed: {counts.get('failed', 0)}\n"
+            f"Warnings: {counts.get('warning', 0)}\n"
+            f"Remaining: {counts.get('remaining', 0)}\n"
+            f"Storage Directory: received/"
+        )
+
+        self.find_result.setText(result_text)
+
+        if not success:
+            QMessageBox.warning(
+                self,
+                "C-MOVE Error",
+                message,
+            )
+
 
 def main():
     app = QApplication(sys.argv)
