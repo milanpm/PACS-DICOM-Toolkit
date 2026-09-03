@@ -22,13 +22,14 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ## Current Status
 
-**Day 17 — DICOM Retrieval with C-MOVE Completed**
+**Day 18 — DICOM Retrieval with C-GET Completed**
 
-- Implemented Study- and Series-level C-MOVE retrieval
-- Connected C-MOVE retrieval to the existing Storage SCP
-- Added Study and Series retrieval controls to the Network tab
-- Verified C-STORE delivery and DICOM file storage in `received/`
-- Next step: **Day 18 — DICOM Retrieval with C-GET**
+- Implemented Study- and Series-level C-GET retrieval
+- Received C-STORE sub-operations over the same Association
+- Added C-GET Storage SCP role negotiation
+- Added Study and Series C-GET controls to the Network tab
+- Verified four-, three-, one-, and zero-instance retrieval results
+- Next step: **Day 19 — DICOM Network Error Handling and Background Operations**
 
 ## Features
 
@@ -309,7 +310,8 @@ received/<SOPInstanceUID>.dcm
 |   15 | C-FIND Study Query                    | Completed |
 |   16 | PACS Query/Retrieve Integration       | Completed |
 |   17 | DICOM Retrieval with C-MOVE           | Completed |
-|   18 | DICOM Retrieval with C-GET            |  Planned  |
+|   18 | DICOM Retrieval with C-GET             | Completed |
+|   19 | Network Error Handling and Background Operations | Planned |
 
 ## Day 11 — Viewer Refactoring
 
@@ -823,6 +825,242 @@ Testing confirmed:
 - Unknown Move Destination returned `0xA801`
 - Storage SCP received and saved the transferred files in `received/`
 - C-MOVE was blocked in the UI when the local Storage SCP was not running
+
+## Day 18 — DICOM Retrieval with C-GET
+
+Day 18 introduced DICOM retrieval using C-GET.
+
+Like C-MOVE, C-GET retrieves matching DICOM instances using Study Root Query/Retrieve. However, C-GET returns the instances through C-STORE sub-operations performed over the same Association as the original C-GET request.
+
+```text
+PACS-DICOM-Toolkit
+    C-GET SCU / C-STORE SCP
+        |
+        | C-GET Request
+        | QueryRetrieveLevel = STUDY or SERIES
+        v
+Remote Query/Retrieve SCP
+    C-GET SCP / C-STORE SCU
+        |
+        | C-STORE Requests
+        | Same Association
+        v
+PACS-DICOM-Toolkit
+        |
+        v
+received/
+```
+
+Unlike C-MOVE, C-GET does not require a Move Destination AE Title, a separate Storage SCP port, or a second Association.
+
+### Study Retrieval
+
+A Study-level C-GET request uses the selected Study Instance UID:
+
+```python
+identifier = Dataset()
+identifier.QueryRetrieveLevel = "STUDY"
+identifier.StudyInstanceUID = study_instance_uid
+```
+
+The request is sent using the Study Root Query/Retrieve Information Model:
+
+```python
+responses = association.send_c_get(
+    identifier,
+    StudyRootQueryRetrieveInformationModelGet,
+)
+```
+
+The test Study contains four DICOM instances distributed across two Series.
+
+### Series Retrieval
+
+A Series-level request requires both the Study Instance UID and Series Instance UID:
+
+```python
+identifier = Dataset()
+identifier.QueryRetrieveLevel = "SERIES"
+identifier.StudyInstanceUID = study_instance_uid
+identifier.SeriesInstanceUID = series_instance_uid
+```
+
+This allows the application to retrieve only the instances belonging to the selected Series.
+
+### Same-Association C-STORE
+
+C-GET uses the original Association for both the C-GET request and the returned C-STORE sub-operations.
+
+The application binds the existing Storage handler directly to the C-GET Association:
+
+```python
+handlers = [
+    (
+        evt.EVT_C_STORE,
+        handle_store,
+        [storage_dir],
+    ),
+]
+```
+
+```python
+association = ae.associate(
+    remote_ip,
+    remote_port,
+    ae_title=remote_ae_title,
+    ext_neg=[storage_role],
+    evt_handlers=handlers,
+)
+```
+
+The received datasets are saved using their SOP Instance UIDs:
+
+```text
+received/<SOPInstanceUID>.dcm
+```
+
+The standalone Storage SCP does not need to be running for C-GET.
+
+### Storage Role Negotiation
+
+The Association requestor normally acts as an SCU. During C-GET, however, the requestor must also act as a Storage SCP to receive the returned instances.
+
+The C-GET SCU requests the Storage SCP role:
+
+```python
+storage_role = build_role(
+    SecondaryCaptureImageStorage,
+    scu_role=False,
+    scp_role=True,
+)
+```
+
+The test C-GET SCP accepts the requestor's Storage SCP role:
+
+```python
+ae.add_supported_context(
+    SecondaryCaptureImageStorage,
+    scu_role=False,
+    scp_role=True,
+)
+```
+
+For the test dataset, only the required Secondary Capture Image Storage context is proposed. This avoids attempting to add all 170 available Storage Presentation Contexts to an Association that can contain at most 128 Presentation Contexts.
+
+### Troubleshooting `0xA702`
+
+The initial C-GET test matched four instances but failed all four C-STORE sub-operations:
+
+```text
+Success: False
+Completed: 0
+Failed: 4
+C-GET failed: 0xA702
+```
+
+The status means:
+
+```text
+0xA702 — Unable to perform sub-operations
+```
+
+The cause was reversed Storage role negotiation on the test C-GET SCP. It did not accept the Association requestor's C-STORE SCP role.
+
+After changing the accepted requestor role to:
+
+```python
+scu_role=False
+scp_role=True
+```
+
+the Study C-GET completed successfully:
+
+```text
+Completed: 4
+Failed: 0
+Warning: 0
+```
+
+This demonstrated that matching Query/Retrieve records and transferring their DICOM datasets are separate stages. A query can match instances while the C-STORE sub-operations still fail because of Association negotiation.
+
+### C-GET Response Handling
+
+The application monitors the same sub-operation counters used for C-MOVE:
+
+```python
+status.NumberOfRemainingSuboperations
+status.NumberOfCompletedSuboperations
+status.NumberOfFailedSuboperations
+status.NumberOfWarningSuboperations
+```
+
+The primary C-GET statuses handled by the application include:
+
+| Status | Meaning |
+| ------ | ------- |
+| `0xFF00` | Pending |
+| `0xFF01` | Pending with optional key warning |
+| `0x0000` | Success |
+| `0xB000` | Completed with warnings |
+| `0xA702` | Unable to perform sub-operations |
+
+### C-MOVE and C-GET Comparison
+
+| Characteristic | C-MOVE | C-GET |
+| -------------- | ------ | ----- |
+| Retrieval request | C-MOVE | C-GET |
+| DICOM transfer | C-STORE | C-STORE |
+| C-STORE Association | Separate Association | Same Association |
+| Move Destination AE Title | Required | Not required |
+| Destination address lookup | Required | Not required |
+| Standalone Storage SCP | Required | Not required |
+| Requestor Storage role negotiation | Not required | Required |
+| Typical use | PACS-to-PACS routing | Direct retrieval by the requesting application |
+
+### Network Tab Integration
+
+The Network tab now provides four retrieval controls:
+
+- `Retrieve Study (C-MOVE)`
+- `Retrieve Study (C-GET)`
+- `Retrieve Series (C-MOVE)`
+- `Retrieve Series (C-GET)`
+
+C-MOVE remains dependent on the separately running local Storage SCP. C-GET can run immediately because its Storage handler is attached to the C-GET Association.
+
+The Query Results area displays the retrieval method, query level, storage location, and sub-operation counts.
+
+```text
+C-GET completed: 4 completed, 0 failed, 0 warning.
+
+Query Retrieve Level: STUDY
+Completed: 4
+Failed: 0
+Warnings: 0
+Remaining: 0
+Storage Directory: received/
+Association: Same association as C-GET
+```
+
+### Test Query/Retrieve SCP
+
+The local Query/Retrieve SCP now supports:
+
+- Hierarchical C-FIND at the `STUDY`, `SERIES`, and `IMAGE` levels
+- C-MOVE at the `STUDY` and `SERIES` levels
+- C-GET at the `STUDY` and `SERIES` levels
+- C-STORE transmission over separate and same Associations
+
+Testing confirmed:
+
+- Study C-GET retrieved four DICOM instances
+- First Series C-GET retrieved three DICOM instances
+- Second Series C-GET retrieved one DICOM instance
+- Unknown Study UID completed successfully with zero matching instances
+- Unknown Series UID completed successfully with zero matching instances
+- Received DICOM files were saved in `received/`
+- C-GET succeeded without starting the standalone Storage SCP
+- Correct Storage role negotiation resolved the initial `0xA702` failure
 
 ## Disclaimer
 

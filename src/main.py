@@ -38,6 +38,7 @@ from dicom_network import (
     find_instances,
     find_series,
     find_studies,
+    get_instances,
     move_instances,
     send_dicom_file,
     start_storage_scp,
@@ -129,6 +130,12 @@ class DicomViewer(QMainWindow):
         )
         self.move_series_button.clicked.connect(
             self.send_series_move
+        )
+        self.get_study_button.clicked.connect(
+            self.send_study_get
+        )
+        self.get_series_button.clicked.connect(
+            self.send_series_get
         )
 
 
@@ -246,6 +253,9 @@ class DicomViewer(QMainWindow):
         self.move_study_button = QPushButton(
             "Retrieve Study (C-MOVE)"
         )
+        self.get_study_button = QPushButton(
+            "Retrieve Study (C-GET)"
+        )
         self.find_study_uid_input = QLineEdit()
         self.find_study_uid_input.setPlaceholderText(
             "Study Instance UID"
@@ -256,6 +266,12 @@ class DicomViewer(QMainWindow):
         )
         self.move_series_button = QPushButton(
             "Retrieve Series (C-MOVE)"
+        )
+        self.move_series_button = QPushButton(
+            "Retrieve Series (C-MOVE)"
+        )
+        self.get_series_button = QPushButton(
+            "Retrieve Series (C-GET)"
         )
         self.find_series_uid_input = QLineEdit()
         self.find_series_uid_input.setPlaceholderText(
@@ -318,6 +334,7 @@ class DicomViewer(QMainWindow):
             self.find_study_uid_input,
         )
         network_layout.addRow(self.move_study_button)
+        network_layout.addRow(self.get_study_button)
         network_layout.addRow(self.find_series_button)
 
         network_layout.addRow(QLabel("Instance Query"))
@@ -326,6 +343,7 @@ class DicomViewer(QMainWindow):
             self.find_series_uid_input,
         )
         network_layout.addRow(self.move_series_button)
+        network_layout.addRow(self.get_series_button)
         network_layout.addRow(self.find_instances_button)
 
         network_layout.addRow(QLabel("Query Results"))
@@ -1223,6 +1241,58 @@ class DicomViewer(QMainWindow):
             QMessageBox.warning(
                 self,
                 "C-MOVE Error",
+                message,
+            )
+
+
+    def send_study_get(self):
+        """Retrieve all instances in the selected study using C-GET."""
+        self.send_c_get("STUDY")
+
+
+    def send_series_get(self):
+        """Retrieve all instances in the selected series using C-GET."""
+        self.send_c_get("SERIES")
+
+
+    def send_c_get(self, query_level):
+        """Request DICOM retrieval using C-GET."""
+        storage_dir = Path.cwd() / "received"
+
+        success, counts, message = get_instances(
+            local_ae_title=self.local_ae_input.text(),
+            remote_ae_title=self.remote_ae_input.text(),
+            remote_ip=self.remote_ip_input.text(),
+            remote_port=self.remote_port_spin.value(),
+            query_level=query_level,
+            study_instance_uid=(
+                self.find_study_uid_input.text()
+            ),
+            series_instance_uid=(
+                self.find_series_uid_input.text()
+            ),
+            storage_dir=storage_dir,
+        )
+
+        self.network_status_label.setText(message)
+
+        result_text = (
+            f"{message}\n\n"
+            f"Query Retrieve Level: {query_level}\n"
+            f"Completed: {counts.get('completed', 0)}\n"
+            f"Failed: {counts.get('failed', 0)}\n"
+            f"Warnings: {counts.get('warning', 0)}\n"
+            f"Remaining: {counts.get('remaining', 0)}\n"
+            f"Storage Directory: received/\n"
+            f"Association: Same association as C-GET"
+        )
+
+        self.find_result.setText(result_text)
+
+        if not success:
+            QMessageBox.warning(
+                self,
+                "C-GET Error",
                 message,
             )
 

@@ -5,7 +5,8 @@ Modified Date: 2026-09-01
 Author: Alex
 Description:
     Provides a test DICOM Query/Retrieve SCP supporting hierarchical
-    C-FIND and C-MOVE operations for local PACS integration testing.
+    C-FIND, C-MOVE, and C-GET operations for local PACS integration
+    testing.
 """
 
 from copy import deepcopy
@@ -19,13 +20,15 @@ from pynetdicom import (
     evt,
 )
 from pynetdicom.sop_class import (
+    SecondaryCaptureImageStorage,
     StudyRootQueryRetrieveInformationModelFind,
+    StudyRootQueryRetrieveInformationModelGet,
     StudyRootQueryRetrieveInformationModelMove,
 )
 
 
 def create_test_instances():
-    """Create test instances for C-MOVE from a sample DICOM file."""
+    """Create test instances for Query/Retrieve operations."""
     project_dir = Path(__file__).resolve().parents[1]
     sample_path = project_dir / "samples" / "test_image.dcm"
 
@@ -332,6 +335,71 @@ def handle_move(event):
         yield 0xFF00, instance
 
 
+def handle_get(event):
+    """Handle incoming Study Root C-GET requests."""
+    identifier = event.identifier
+
+    print("C-GET request received")
+    print(identifier)
+
+    query_level = str(
+        getattr(identifier, "QueryRetrieveLevel", "")
+    ).strip().upper()
+
+    study_instance_uid = str(
+        getattr(identifier, "StudyInstanceUID", "")
+    ).strip()
+
+    series_instance_uid = str(
+        getattr(identifier, "SeriesInstanceUID", "")
+    ).strip()
+
+    expected_study_uid = "1.2.826.0.1.3680043.8.498.1001"
+
+    instances = create_test_instances()
+    matching_instances = []
+
+    if query_level == "STUDY":
+        if study_instance_uid == expected_study_uid:
+            matching_instances = instances
+
+    elif query_level == "SERIES":
+        if study_instance_uid == expected_study_uid:
+            matching_instances = [
+                instance
+                for instance in instances
+                if str(instance.SeriesInstanceUID)
+                == series_instance_uid
+            ]
+
+    else:
+        print(
+            f"Unsupported QueryRetrieveLevel: {query_level}"
+        )
+        yield 0
+        yield 0xC000, None
+        return
+
+    print(
+        f"C-GET matched {len(matching_instances)} instance(s)"
+    )
+
+    # Number of required C-STORE sub-operations
+    yield len(matching_instances)
+
+    for instance in matching_instances:
+        if event.is_cancelled:
+            yield 0xFE00, None
+            return
+
+        print(
+            "Sending instance via C-GET: "
+            f"{instance.SOPInstanceUID}"
+        )
+
+        yield 0xFF00, instance
+
+
 def main():
     ae = AE(ae_title="TEST_PACS")
 
@@ -341,6 +409,16 @@ def main():
 
     ae.add_supported_context(
         StudyRootQueryRetrieveInformationModelMove
+    )
+
+    ae.add_supported_context(
+        StudyRootQueryRetrieveInformationModelGet
+    )
+
+    ae.add_supported_context(
+        SecondaryCaptureImageStorage,
+        scu_role=False,
+        scp_role=True,
     )
 
     ae.requested_contexts = StoragePresentationContexts
@@ -354,10 +432,14 @@ def main():
             evt.EVT_C_MOVE,
             handle_move,
         ),
+        (
+            evt.EVT_C_GET,
+            handle_get,
+        ),
     ]
 
     print("Starting Query/Retrieve SCP")
-    print("Services: C-FIND, C-MOVE")
+    print("Services: C-FIND, C-MOVE, C-GET")
     print("AE Title: TEST_PACS")
     print("Port: 11112")
     print("Move Destination: PACS_TOOLKIT -> 127.0.0.1:11113")

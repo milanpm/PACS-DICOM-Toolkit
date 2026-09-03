@@ -1,12 +1,12 @@
 """
 File Name: dicom_network.py
 Created Date: 2026-08-24
-Modified Date: 2026-09-01
+Modified Date: 2026-09-02
 Author: Alex
 Description:
     Provides DICOM networking functions for C-ECHO, C-STORE,
-    Storage SCP, hierarchical C-FIND, and C-MOVE operations used
-    by the PACS DICOM Toolkit.
+    Storage SCP, hierarchical C-FIND, C-MOVE, and C-GET operations
+    used by the PACS DICOM Toolkit.
 """
 
 from pathlib import Path
@@ -18,8 +18,11 @@ from pynetdicom import (
     AllStoragePresentationContexts,
     evt,
 )
+from pynetdicom.presentation import build_role
 from pynetdicom.sop_class import (
+    SecondaryCaptureImageStorage,
     StudyRootQueryRetrieveInformationModelFind,
+    StudyRootQueryRetrieveInformationModelGet,
     StudyRootQueryRetrieveInformationModelMove,
     Verification,
 )
@@ -541,6 +544,197 @@ def move_instances(
 
     except (OSError, TypeError, ValueError) as error:
         return False, {}, f"C-MOVE error: {error}"
+
+    finally:
+        if association is not None and association.is_established:
+            association.release()
+
+
+def get_instances(
+    local_ae_title,
+    remote_ae_title,
+    remote_ip,
+    remote_port,
+    query_level,
+    study_instance_uid,
+    storage_dir,
+    series_instance_uid="",
+):
+    """Retrieve DICOM instances using C-GET."""
+    association = None
+
+    try:
+        local_ae_title = local_ae_title.strip()
+        remote_ae_title = remote_ae_title.strip()
+        remote_ip = remote_ip.strip()
+        remote_port = int(remote_port)
+        query_level = query_level.strip().upper()
+        study_instance_uid = study_instance_uid.strip()
+        series_instance_uid = series_instance_uid.strip()
+
+        if query_level not in ("STUDY", "SERIES"):
+            return (
+                False,
+                {},
+                "Query Retrieve Level must be STUDY or SERIES.",
+            )
+
+        if not study_instance_uid:
+            return (
+                False,
+                {},
+                "Study Instance UID is required.",
+            )
+
+        if query_level == "SERIES" and not series_instance_uid:
+            return (
+                False,
+                {},
+                "Series Instance UID is required.",
+            )
+
+        ae = AE(ae_title=local_ae_title)
+
+        ae.add_requested_context(
+            StudyRootQueryRetrieveInformationModelGet
+        )
+
+        ae.add_requested_context(
+            SecondaryCaptureImageStorage
+        )
+
+        storage_role = build_role(
+            SecondaryCaptureImageStorage,
+            scu_role=False,
+            scp_role=True,
+        )
+
+        ae.acse_timeout = 5
+        ae.dimse_timeout = 30
+        ae.network_timeout = 30
+
+        handlers = [
+            (
+                evt.EVT_C_STORE,
+                handle_store,
+                [storage_dir],
+            ),
+        ]
+
+        association = ae.associate(
+            remote_ip,
+            remote_port,
+            ae_title=remote_ae_title,
+            ext_neg=[storage_role],
+            evt_handlers=handlers,
+        )
+
+        if not association.is_established:
+            return False, {}, "DICOM Association failed."
+
+        identifier = Dataset()
+        identifier.QueryRetrieveLevel = query_level
+        identifier.StudyInstanceUID = study_instance_uid
+
+        if query_level == "SERIES":
+            identifier.SeriesInstanceUID = series_instance_uid
+
+        counts = {
+            "remaining": 0,
+            "completed": 0,
+            "failed": 0,
+            "warning": 0,
+        }
+
+        responses = association.send_c_get(
+            identifier,
+            StudyRootQueryRetrieveInformationModelGet,
+        )
+
+        for status, _ in responses:
+            if status is None:
+                return (
+                    False,
+                    counts,
+                    "No valid C-GET response was received.",
+                )
+
+            status_code = int(status.Status)
+
+            counts["remaining"] = int(
+                getattr(
+                    status,
+                    "NumberOfRemainingSuboperations",
+                    0,
+                )
+                or 0
+            )
+            counts["completed"] = int(
+                getattr(
+                    status,
+                    "NumberOfCompletedSuboperations",
+                    0,
+                )
+                or 0
+            )
+            counts["failed"] = int(
+                getattr(
+                    status,
+                    "NumberOfFailedSuboperations",
+                    0,
+                )
+                or 0
+            )
+            counts["warning"] = int(
+                getattr(
+                    status,
+                    "NumberOfWarningSuboperations",
+                    0,
+                )
+                or 0
+            )
+
+            if status_code in (0xFF00, 0xFF01):
+                continue
+
+            if status_code == 0x0000:
+                return (
+                    True,
+                    counts,
+                    (
+                        "C-GET completed: "
+                        f"{counts['completed']} completed, "
+                        f"{counts['failed']} failed, "
+                        f"{counts['warning']} warning."
+                    ),
+                )
+
+            if status_code == 0xB000:
+                return (
+                    True,
+                    counts,
+                    (
+                        "C-GET completed with warnings: "
+                        f"{counts['completed']} completed, "
+                        f"{counts['failed']} failed, "
+                        f"{counts['warning']} warning."
+                    ),
+                )
+
+            return (
+                False,
+                counts,
+                f"C-GET failed: 0x{status_code:04X}",
+            )
+
+        return (
+            False,
+            counts,
+            "C-GET ended without a final response.",
+        )
+
+    except (OSError, TypeError, ValueError) as error:
+        return False, {}, f"C-GET error: {error}"
 
     finally:
         if association is not None and association.is_established:
