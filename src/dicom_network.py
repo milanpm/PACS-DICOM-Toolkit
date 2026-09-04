@@ -378,6 +378,7 @@ def move_instances(
     query_level,
     study_instance_uid,
     series_instance_uid="",
+    progress_callback=None,
 ):
     """Retrieve DICOM instances using C-MOVE."""
     association = None
@@ -503,6 +504,15 @@ def move_instances(
                 or 0
             )
 
+            if progress_callback is not None:
+                progress_callback(
+                    "C-MOVE Progress: "
+                    f"{counts['completed']} completed, "
+                    f"{counts['remaining']} remaining, "
+                    f"{counts['failed']} failed, "
+                    f"{counts['warning']} warning"
+                )
+
             if status_code in (0xFF00, 0xFF01):
                 continue
 
@@ -559,6 +569,7 @@ def get_instances(
     study_instance_uid,
     storage_dir,
     series_instance_uid="",
+    progress_callback=None,
 ):
     """Retrieve DICOM instances using C-GET."""
     association = None
@@ -693,6 +704,15 @@ def get_instances(
                 )
                 or 0
             )
+
+            if progress_callback is not None:
+                progress_callback(
+                    "C-GET Progress: "
+                    f"{counts['completed']} completed, "
+                    f"{counts['remaining']} remaining, "
+                    f"{counts['failed']} failed, "
+                    f"{counts['warning']} warning"
+                )
 
             if status_code in (0xFF00, 0xFF01):
                 continue

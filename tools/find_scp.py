@@ -24,6 +24,7 @@ from pynetdicom.sop_class import (
     StudyRootQueryRetrieveInformationModelFind,
     StudyRootQueryRetrieveInformationModelGet,
     StudyRootQueryRetrieveInformationModelMove,
+    Verification,
 )
 
 
@@ -400,8 +401,51 @@ def handle_get(event):
         yield 0xFF00, instance
 
 
+def handle_store(event):
+    """Handle an incoming C-STORE request."""
+    try:
+        dataset = event.dataset
+        dataset.file_meta = event.file_meta
+
+        project_dir = Path(__file__).resolve().parents[1]
+        storage_dir = (
+            project_dir
+            / "received"
+            / "test_pacs"
+        )
+        storage_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        sop_instance_uid = str(
+            dataset.SOPInstanceUID
+        ).strip()
+
+        output_path = (
+            storage_dir
+            / f"{sop_instance_uid}.dcm"
+        )
+
+        dataset.save_as(
+            output_path,
+            enforce_file_format=True,
+        )
+
+        print("C-STORE request received")
+        print(f"Saved DICOM: {output_path}")
+
+        return 0x0000
+
+    except Exception as error:
+        print(f"C-STORE handler error: {error}")
+        return 0xC001
+
+
 def main():
     ae = AE(ae_title="TEST_PACS")
+
+    ae.add_supported_context(Verification)
 
     ae.add_supported_context(
         StudyRootQueryRetrieveInformationModelFind
@@ -436,10 +480,16 @@ def main():
             evt.EVT_C_GET,
             handle_get,
         ),
+        (
+            evt.EVT_C_STORE,
+            handle_store,
+        ),
     ]
 
     print("Starting Query/Retrieve SCP")
-    print("Services: C-FIND, C-MOVE, C-GET")
+    print(
+        "Services: C-ECHO, C-STORE, C-FIND, C-MOVE, C-GET"
+    )
     print("AE Title: TEST_PACS")
     print("Port: 11112")
     print("Move Destination: PACS_TOOLKIT -> 127.0.0.1:11113")

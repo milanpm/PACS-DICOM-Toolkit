@@ -22,14 +22,16 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ## Current Status
 
-**Day 18 — DICOM Retrieval with C-GET Completed**
+**Day 19 — Network UI Refactoring and Background Operations Completed**
 
-- Implemented Study- and Series-level C-GET retrieval
-- Received C-STORE sub-operations over the same Association
-- Added C-GET Storage SCP role negotiation
-- Added Study and Series C-GET controls to the Network tab
-- Verified four-, three-, one-, and zero-instance retrieval results
-- Next step: **Day 19 — DICOM Network Error Handling and Background Operations**
+- Reorganized the Network tab using task-specific groups
+- Added a scrollable layout for smaller application windows
+- Added `NetworkWorker` based on `QThread`
+- Moved C-ECHO, C-STORE, C-FIND, C-MOVE, and C-GET operations off the GUI thread
+- Added signal-based progress, result, error, and completion handling
+- Added live C-MOVE and C-GET sub-operation progress messages
+- Extended the local test PACS with C-ECHO and C-STORE support
+- Next step: **Day 20 — Network Validation, Logging, and Operation Control**
 
 ## Features
 
@@ -310,8 +312,8 @@ received/<SOPInstanceUID>.dcm
 |   15 | C-FIND Study Query                    | Completed |
 |   16 | PACS Query/Retrieve Integration       | Completed |
 |   17 | DICOM Retrieval with C-MOVE           | Completed |
-|   18 | DICOM Retrieval with C-GET             | Completed |
-|   19 | Network Error Handling and Background Operations | Planned |
+|   18 | DICOM Retrieval with C-GET            | Completed |
+|   19 | Network UI and Background Operations  | Completed |
 
 ## Day 11 — Viewer Refactoring
 
@@ -1040,6 +1042,44 @@ Warnings: 0
 Remaining: 0
 Storage Directory: received/
 Association: Same association as C-GET
+```
+
+## Day 19 — Network UI Refactoring and Background Operations
+
+Day 19 reorganized the DICOM Network tab and moved blocking
+network operations away from the PyQt GUI thread.
+
+The DICOM networking functions were already working correctly,
+but C-FIND, C-MOVE, and C-GET could block the user interface while
+waiting for Association responses or transfer sub-operations.
+
+### Network Tab Refactoring
+
+The original Network tab used one long `QFormLayout`. As more
+DICOM services were added, the controls became difficult to
+navigate.
+
+The Network tab is now divided into functional groups:
+
+- PACS Connection
+- Local Storage SCP
+- Study Query
+- Hierarchy Selection
+- Retrieve
+- Status and Results
+
+A `QScrollArea` keeps every control accessible when the
+application window is smaller than the complete Network panel.
+
+The Network controls also use clearer labels, stronger text
+contrast, and visually distinct disabled buttons.
+
+### Background Network Worker
+
+A reusable `NetworkWorker` was added in:
+
+```text
+src/network_worker.py
 ```
 
 ### Test Query/Retrieve SCP
