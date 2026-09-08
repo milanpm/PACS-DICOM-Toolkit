@@ -22,16 +22,19 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ## Current Status
 
-**Day 19 — Network UI Refactoring and Background Operations Completed**
+**Day 20 — Network Validation, Logging, and Operation Control Completed**
 
-- Reorganized the Network tab using task-specific groups
-- Added a scrollable layout for smaller application windows
-- Added `NetworkWorker` based on `QThread`
-- Moved C-ECHO, C-STORE, C-FIND, C-MOVE, and C-GET operations off the GUI thread
-- Added signal-based progress, result, error, and completion handling
-- Added live C-MOVE and C-GET sub-operation progress messages
-- Extended the local test PACS with C-ECHO and C-STORE support
-- Next step: **Day 20 — Network Validation, Logging, and Operation Control**
+- Added shared validation for Local and Remote AE Titles
+- Added IPv4 and IPv6 address validation
+- Added Remote PACS and Storage SCP port validation
+- Added `YYYYMMDD` Study Date validation
+- Added required Study and Series Instance UID validation
+- Added timestamped network operation logs
+- Added Storage SCP start, stop, success, and error logs
+- Disabled network settings and action controls while an operation is running
+- Restored controls according to the loaded DICOM file and Storage SCP state
+- Preserved background C-ECHO, C-STORE, C-FIND, C-MOVE, and C-GET operations
+- Next step: **Day 21 — Network Cancellation and Timeout Handling**
 
 ## Features
 
@@ -1101,6 +1104,87 @@ Testing confirmed:
 - Received DICOM files were saved in `received/`
 - C-GET succeeded without starting the standalone Storage SCP
 - Correct Storage role negotiation resolved the initial `0xA702` failure
+
+## Day 20 — Network Validation, Logging, and Operation Control
+
+Day 20 improved the reliability and usability of the DICOM
+Network tab by validating user input before starting an
+Association, recording timestamped network events, and preventing
+conflicting UI actions while an operation is running.
+
+### PACS Connection Validation
+
+The Network tab now validates and normalizes the connection
+settings before starting C-ECHO, C-STORE, C-FIND, C-MOVE, or
+C-GET.
+
+The validation checks include:
+
+- Local AE Title is not empty
+- Remote AE Title is not empty
+- AE Titles contain no more than 16 characters
+- Remote IP is a valid IPv4 or IPv6 address
+- Remote Port is between `1` and `65535`
+- Storage SCP Port is between `1` and `65535`
+
+Invalid settings are rejected before creating a
+`NetworkWorker` or attempting a DICOM Association.
+
+### Query and Retrieve Input Validation
+
+Operation-specific values are also validated before a request is
+started.
+
+- Study Date must use the `YYYYMMDD` format
+- Study Date must represent a valid calendar date
+- Series C-FIND requires a valid Study Instance UID
+- Instance C-FIND requires valid Study and Series Instance UIDs
+- Study C-MOVE and C-GET require a valid Study Instance UID
+- Series C-MOVE and C-GET require valid Study and Series Instance UIDs
+
+Validation failures are displayed in the status area, recorded in
+the network log, and shown in a warning dialog.
+
+### Timestamped Network Log
+
+A dedicated Network Log area records operation events using the
+local time in `HH:mm:ss` format.
+
+```text
+[13:52:10] VALIDATION: Local AE Title is required.
+[13:52:24] Starting Storage SCP (AE: PACS_TOOLKIT, Port: 11113)
+[13:52:24] SUCCESS: Storage SCP running on port 11113
+[13:53:06] Stopping Storage SCP...
+[13:53:06] SUCCESS: Storage SCP stopped
+```
+
+The log records:
+
+- Validation failures
+- Worker progress messages
+- Successful results
+- Failed results
+- Unexpected worker exceptions
+- Storage SCP startup and shutdown events
+
+### Network Operation Control
+
+Network configuration fields, query inputs, and action buttons are
+disabled while a background network operation is running. This
+prevents duplicate requests and configuration changes during an
+active Association.
+
+After the worker finishes, the controls are restored according to
+the current application state:
+
+- C-STORE is enabled only when a DICOM file is loaded
+- Start Storage SCP is enabled only when the SCP is stopped
+- Stop Storage SCP is enabled only when the SCP is running
+- Local AE Title and Storage SCP Port remain locked while the SCP
+  is running
+
+The GUI remains responsive because blocking DICOM operations
+continue to run through `NetworkWorker` and `QThread`.
 
 ## Disclaimer
 

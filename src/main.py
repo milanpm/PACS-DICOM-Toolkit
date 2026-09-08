@@ -1,7 +1,7 @@
 """
 File Name: main.py
 Created Date: 2026-08-24
-Modified Date: 2026-09-01
+Modified Date: 2026-09-08
 Author: Alex
 Description:
     Provides the PyQt5 user interface for viewing, inspecting,
@@ -9,10 +9,13 @@ Description:
     PACS DICOM Toolkit.
 """
 
+import ipaddress
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+from pydicom.uid import UID
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
@@ -51,6 +54,7 @@ from image_view import ImageView
 from network_worker import NetworkWorker
 from windowing import apply_window
 
+
 class DicomViewer(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -58,7 +62,6 @@ class DicomViewer(QMainWindow):
         self.initialize_state()
         self.setup_ui()
         self.connect_signals()
-
 
     def initialize_state(self):
         """Initialize DICOM data and measurement state."""
@@ -68,8 +71,229 @@ class DicomViewer(QMainWindow):
         self.measurement_points = []
         self.storage_server = None
         self.network_worker = None
-        self.active_network_button = None
 
+    def validate_network_settings(self):
+        """Validate and normalize the PACS connection settings."""
+        local_ae_title = self.local_ae_input.text().strip()
+        remote_ae_title = self.remote_ae_input.text().strip()
+        remote_ip = self.remote_ip_input.text().strip()
+        remote_port = self.remote_port_spin.value()
+
+        errors = []
+
+        if not local_ae_title:
+            errors.append("Local AE Title is required.")
+        elif len(local_ae_title) > 16:
+            errors.append(
+                "Local AE Title must be 16 characters or fewer."
+            )
+
+        if not remote_ae_title:
+            errors.append("Remote AE Title is required.")
+        elif len(remote_ae_title) > 16:
+            errors.append(
+                "Remote AE Title must be 16 characters or fewer."
+            )
+
+        try:
+            ipaddress.ip_address(remote_ip)
+        except ValueError:
+            errors.append(
+                "Remote IP must be a valid IPv4 or IPv6 address."
+            )
+
+        if not 1 <= remote_port <= 65535:
+            errors.append(
+                "Remote Port must be between 1 and 65535."
+            )
+
+        if errors:
+            self.show_validation_error(
+                "Invalid Network Settings",
+                "\n".join(errors),
+            )
+            return None
+
+        # 공백이 포함된 입력을 정규화된 값으로 다시 표시합니다.
+        self.local_ae_input.setText(local_ae_title)
+        self.remote_ae_input.setText(remote_ae_title)
+        self.remote_ip_input.setText(remote_ip)
+
+        return {
+            "local_ae_title": local_ae_title,
+            "remote_ae_title": remote_ae_title,
+            "remote_ip": remote_ip,
+            "remote_port": remote_port,
+        }
+
+    def validate_storage_scp_settings(self):
+        """Validate the local Storage SCP settings."""
+        local_ae_title = self.local_ae_input.text().strip()
+        local_port = self.scp_port_spin.value()
+
+        errors = []
+
+        if not local_ae_title:
+            errors.append("Local AE Title is required.")
+        elif len(local_ae_title) > 16:
+            errors.append(
+                "Local AE Title must be 16 characters or fewer."
+            )
+
+        if not 1 <= local_port <= 65535:
+            errors.append(
+                "Storage SCP Port must be between 1 and 65535."
+            )
+
+        if errors:
+            self.show_validation_error(
+                "Invalid Storage SCP Settings",
+                "\n".join(errors),
+            )
+            return None
+
+        self.local_ae_input.setText(local_ae_title)
+
+        return {
+            "local_ae_title": local_ae_title,
+            "local_port": local_port,
+        }
+
+    def show_validation_error(self, title, message):
+        """Display an input validation error."""
+        self.network_status_label.setStyleSheet(
+            "color: red;"
+        )
+        self.network_status_label.setText(
+            f"Network: {message}"
+        )
+
+        self.append_network_log(
+            f"VALIDATION: {message}"
+        )
+
+        QMessageBox.warning(
+            self,
+            title,
+            message,
+        )
+
+    def validate_study_date(self):
+        """Validate an optional DICOM Study Date filter."""
+        study_date = self.find_study_date_input.text().strip()
+
+        if not study_date:
+            return True
+
+        if len(study_date) != 8 or not study_date.isdigit():
+            self.show_validation_error(
+                "Invalid Study Date",
+                "Study Date must use the YYYYMMDD format.",
+            )
+            return False
+
+        try:
+            datetime.strptime(study_date, "%Y%m%d")
+        except ValueError:
+            self.show_validation_error(
+                "Invalid Study Date",
+                "Study Date is not a valid calendar date.",
+            )
+            return False
+
+        self.find_study_date_input.setText(study_date)
+        return True
+
+    def validate_required_uid(self, value, name):
+        """Validate a required DICOM UID."""
+        value = value.strip()
+
+        if not value:
+            self.show_validation_error(
+                f"Missing {name}",
+                f"{name} is required.",
+            )
+            return None
+
+        if not UID(value).is_valid:
+            self.show_validation_error(
+                f"Invalid {name}",
+                f"{name} is not a valid DICOM UID.",
+            )
+            return None
+
+        return value
+
+    def append_network_log(self, message):
+        """Append a timestamped message to the network log."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.network_log.append(
+            f"[{timestamp}] {message}"
+        )
+
+    def set_network_controls_enabled(self, enabled):
+        """Enable or disable controls during a network operation."""
+        connection_controls = [
+            self.local_ae_input,
+            self.remote_ae_input,
+            self.remote_ip_input,
+            self.remote_port_spin,
+            self.scp_port_spin,
+        ]
+
+        query_controls = [
+            self.find_patient_id_input,
+            self.find_patient_name_input,
+            self.find_study_date_input,
+            self.find_study_uid_input,
+            self.find_series_uid_input,
+        ]
+
+        operation_buttons = [
+            self.echo_button,
+            self.find_button,
+            self.find_series_button,
+            self.find_instances_button,
+            self.move_study_button,
+            self.move_series_button,
+            self.get_study_button,
+            self.get_series_button,
+        ]
+
+        for control in connection_controls:
+            control.setEnabled(enabled)
+
+        for control in query_controls:
+            control.setEnabled(enabled)
+
+        for button in operation_buttons:
+            button.setEnabled(enabled)
+
+        if enabled:
+            self.store_button.setEnabled(
+                self.current_file_path is not None
+            )
+
+            storage_running = (
+                self.storage_server is not None
+            )
+
+            self.start_scp_button.setEnabled(
+                not storage_running
+            )
+            self.stop_scp_button.setEnabled(
+                storage_running
+            )
+            self.scp_port_spin.setEnabled(
+                not storage_running
+            )
+            self.local_ae_input.setEnabled(
+                not storage_running
+            )
+        else:
+            self.store_button.setEnabled(False)
+            self.start_scp_button.setEnabled(False)
+            self.stop_scp_button.setEnabled(False)
 
     def connect_signals(self):
         """Connect UI events to viewer actions."""
@@ -143,7 +367,6 @@ class DicomViewer(QMainWindow):
         self.get_series_button.clicked.connect(
             self.send_series_get
         )
-
 
     def setup_ui(self):
         """Create and arrange viewer widgets."""
@@ -283,6 +506,13 @@ class DicomViewer(QMainWindow):
             "Search Instances"
         )
 
+        self.network_log = QTextEdit()
+        self.network_log.setReadOnly(True)
+        self.network_log.setMinimumHeight(120)
+        self.network_log.setPlaceholderText(
+            "Timestamped network events will appear here."
+        )
+
         self.find_result = QTextEdit()
         self.find_result.setReadOnly(True)
         self.find_result.setMinimumHeight(180)
@@ -407,6 +637,9 @@ class DicomViewer(QMainWindow):
         self.network_status_label.setWordWrap(True)
 
         result_layout.addWidget(self.network_status_label)
+        result_layout.addWidget(QLabel("Network Log"))
+        result_layout.addWidget(self.network_log)
+        result_layout.addWidget(QLabel("Query/Retrieve Results"))
         result_layout.addWidget(self.find_result)
 
         result_group.setLayout(result_layout)
@@ -550,7 +783,6 @@ class DicomViewer(QMainWindow):
         container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
-
 
     def open_dicom(self):
         """DICOM 파일을 선택하고 화면에 표시합니다."""
@@ -907,7 +1139,6 @@ class DicomViewer(QMainWindow):
         """창 크기가 변경되면 영상도 다시 맞춥니다."""
         super().resizeEvent(event)
 
-
     def add_measurement_point(self, x, y):
         """두 측정 포인트 사이의 거리를 pixel 또는 mm 단위로 표시합니다."""
         if self.dataset is None:
@@ -1004,13 +1235,12 @@ class DicomViewer(QMainWindow):
         ):
             return
 
-        local_ae_title = self.local_ae_input.text()
-        remote_ae_title = self.remote_ae_input.text()
-        remote_ip = self.remote_ip_input.text()
-        remote_port = self.remote_port_spin.value()
+        settings = self.validate_network_settings()
 
-        self.active_network_button = self.echo_button
-        self.echo_button.setEnabled(False)
+        if settings is None:
+            return
+
+        self.set_network_controls_enabled(False)
 
         self.network_status_label.setStyleSheet("")
         self.network_status_label.setText(
@@ -1020,10 +1250,10 @@ class DicomViewer(QMainWindow):
         self.network_worker = NetworkWorker(
             "C-ECHO",
             verify_connection,
-            local_ae_title,
-            remote_ae_title,
-            remote_ip,
-            remote_port,
+            settings["local_ae_title"],
+            settings["remote_ae_title"],
+            settings["remote_ip"],
+            settings["remote_port"],
         )
 
         self.network_worker.progress.connect(
@@ -1041,18 +1271,14 @@ class DicomViewer(QMainWindow):
 
         self.network_worker.start()
 
-    def update_network_progress(self, message):
-        """Display progress reported by the network worker."""
-        self.network_status_label.setStyleSheet(
-            "color: #b8860b;"
-        )
-        self.network_status_label.setText(
-            f"Network: {message}"
-        )
-
     def handle_echo_result(self, result):
         """Display the result of an asynchronous C-ECHO."""
         success, message = result
+
+        log_level = "SUCCESS" if success else "FAILED"
+        self.append_network_log(
+            f"{log_level}: {message}"
+        )
 
         if success:
             self.network_status_label.setStyleSheet(
@@ -1070,6 +1296,11 @@ class DicomViewer(QMainWindow):
     def handle_store_result(self, result):
         """Display the result of an asynchronous C-STORE."""
         success, message = result
+
+        log_level = "SUCCESS" if success else "FAILED"
+        self.append_network_log(
+            f"{log_level}: {message}"
+        )
 
         if success:
             self.network_status_label.setStyleSheet(
@@ -1093,6 +1324,10 @@ class DicomViewer(QMainWindow):
             f"Network: {message}"
         )
 
+        self.append_network_log(
+            f"ERROR: {message}"
+        )
+
         QMessageBox.critical(
             self,
             "Network Error",
@@ -1100,11 +1335,8 @@ class DicomViewer(QMainWindow):
         )
 
     def finish_network_operation(self):
-        """Clean up after a background network operation."""
-        if self.active_network_button is not None:
-            self.active_network_button.setEnabled(True)
-
-        self.active_network_button = None
+        """Restore controls after a network operation."""
+        self.set_network_controls_enabled(True)
 
         if self.network_worker is not None:
             self.network_worker.deleteLater()
@@ -1126,14 +1358,14 @@ class DicomViewer(QMainWindow):
         ):
             return
 
-        file_path = self.current_file_path
-        local_ae_title = self.local_ae_input.text()
-        remote_ae_title = self.remote_ae_input.text()
-        remote_ip = self.remote_ip_input.text()
-        remote_port = self.remote_port_spin.value()
+        settings = self.validate_network_settings()
 
-        self.active_network_button = self.store_button
-        self.store_button.setEnabled(False)
+        if settings is None:
+            return
+
+        file_path = self.current_file_path
+
+        self.set_network_controls_enabled(False)
 
         self.network_status_label.setStyleSheet("")
         self.network_status_label.setText(
@@ -1144,10 +1376,10 @@ class DicomViewer(QMainWindow):
             "C-STORE",
             send_dicom_file,
             file_path,
-            local_ae_title,
-            remote_ae_title,
-            remote_ip,
-            remote_port,
+            settings["local_ae_title"],
+            settings["remote_ae_title"],
+            settings["remote_ip"],
+            settings["remote_port"],
         )
 
         self.network_worker.progress.connect(
@@ -1170,12 +1402,21 @@ class DicomViewer(QMainWindow):
         if self.storage_server is not None:
             return
 
+        settings = self.validate_storage_scp_settings()
+
+        if settings is None:
+            return
+
+        local_ae_title = settings["local_ae_title"]
+        local_port = settings["local_port"]
+        storage_dir = Path.cwd() / "received"
+
+        self.append_network_log(
+            "Starting Storage SCP "
+            f"(AE: {local_ae_title}, Port: {local_port})"
+        )
+
         try:
-            local_ae_title = self.local_ae_input.text()
-            local_port = self.scp_port_spin.value()
-
-            storage_dir = Path.cwd() / "received"
-
             self.storage_server = start_storage_scp(
                 local_ae_title=local_ae_title,
                 local_ip="0.0.0.0",
@@ -1186,16 +1427,37 @@ class DicomViewer(QMainWindow):
             self.start_scp_button.setEnabled(False)
             self.stop_scp_button.setEnabled(True)
             self.scp_port_spin.setEnabled(False)
+            self.local_ae_input.setEnabled(False)
+
+            message = (
+                f"Storage SCP running on port {local_port}"
+            )
 
             self.network_status_label.setText(
-                f"Storage SCP running on port {local_port}"
+                f"Network: {message}"
             )
             self.network_status_label.setStyleSheet(
                 "color: green;"
             )
 
+            self.append_network_log(
+                f"SUCCESS: {message}"
+            )
+
         except Exception as error:
             self.storage_server = None
+            message = f"Storage SCP failed: {error}"
+
+            self.network_status_label.setText(
+                f"Network: {message}"
+            )
+            self.network_status_label.setStyleSheet(
+                "color: red;"
+            )
+
+            self.append_network_log(
+                f"ERROR: {message}"
+            )
 
             QMessageBox.critical(
                 self,
@@ -1203,21 +1465,23 @@ class DicomViewer(QMainWindow):
                 str(error),
             )
 
-            self.network_status_label.setText(
-                f"Storage SCP failed: {error}"
-            )
-            self.network_status_label.setStyleSheet(
-                "color: red;"
-            )
-
     def stop_storage_server(self):
         """Stop the local DICOM Storage SCP."""
         if self.storage_server is None:
             return
 
+        self.append_network_log(
+            "Stopping Storage SCP..."
+        )
+
+        stop_error = None
+
         try:
             self.storage_server.shutdown()
             self.storage_server.server_close()
+
+        except Exception as error:
+            stop_error = error
 
         finally:
             self.storage_server = None
@@ -1225,13 +1489,43 @@ class DicomViewer(QMainWindow):
             self.start_scp_button.setEnabled(True)
             self.stop_scp_button.setEnabled(False)
             self.scp_port_spin.setEnabled(True)
+            self.local_ae_input.setEnabled(True)
+
+        if stop_error is not None:
+            message = (
+                f"Storage SCP stop failed: {stop_error}"
+            )
 
             self.network_status_label.setText(
-                "Storage SCP stopped"
+                f"Network: {message}"
             )
             self.network_status_label.setStyleSheet(
-                "color: gray;"
+                "color: red;"
             )
+
+            self.append_network_log(
+                f"ERROR: {message}"
+            )
+
+            QMessageBox.critical(
+                self,
+                "Storage SCP Error",
+                str(stop_error),
+            )
+            return
+
+        message = "Storage SCP stopped"
+
+        self.network_status_label.setText(
+            f"Network: {message}"
+        )
+        self.network_status_label.setStyleSheet(
+            "color: gray;"
+        )
+
+        self.append_network_log(
+            f"SUCCESS: {message}"
+        )
 
     def closeEvent(self, event):
         """Stop background services before closing the application."""
@@ -1262,11 +1556,18 @@ class DicomViewer(QMainWindow):
         ):
             return
 
+        settings = self.validate_network_settings()
+
+        if settings is None:
+            return
+
+        if not self.validate_study_date():
+            return
+
         self.find_study_uid_input.clear()
         self.find_series_uid_input.clear()
 
-        self.active_network_button = self.find_button
-        self.find_button.setEnabled(False)
+        self.set_network_controls_enabled(False)
 
         self.find_result.clear()
         self.network_status_label.setStyleSheet("")
@@ -1304,6 +1605,11 @@ class DicomViewer(QMainWindow):
     def handle_study_find_result(self, result):
         """Display Study C-FIND results."""
         success, results, message = result
+
+        log_level = "SUCCESS" if success else "FAILED"
+        self.append_network_log(
+            f"{log_level}: {message}"
+        )
 
         if success:
             self.network_status_label.setStyleSheet(
@@ -1374,16 +1680,17 @@ class DicomViewer(QMainWindow):
         ):
             return
 
-        study_instance_uid = (
-            self.find_study_uid_input.text()
+        study_instance_uid = self.validate_required_uid(
+            self.find_study_uid_input.text(),
+            "Study Instance UID",
         )
+
+        if study_instance_uid is None:
+            return
 
         self.find_series_uid_input.clear()
 
-        self.active_network_button = (
-            self.find_series_button
-        )
-        self.find_series_button.setEnabled(False)
+        self.set_network_controls_enabled(False)
 
         self.find_result.clear()
         self.network_status_label.setStyleSheet("")
@@ -1419,6 +1726,11 @@ class DicomViewer(QMainWindow):
     def handle_series_find_result(self, result):
         """Display Series C-FIND results."""
         success, results, message = result
+
+        log_level = "SUCCESS" if success else "FAILED"
+        self.append_network_log(
+            f"{log_level}: {message}"
+        )
 
         if success:
             self.network_status_label.setStyleSheet(
@@ -1485,17 +1797,23 @@ class DicomViewer(QMainWindow):
         ):
             return
 
-        study_instance_uid = (
-            self.find_study_uid_input.text()
-        )
-        series_instance_uid = (
-            self.find_series_uid_input.text()
+        study_instance_uid = self.validate_required_uid(
+            self.find_study_uid_input.text(),
+            "Study Instance UID",
         )
 
-        self.active_network_button = (
-            self.find_instances_button
+        if study_instance_uid is None:
+            return
+
+        series_instance_uid = self.validate_required_uid(
+            self.find_series_uid_input.text(),
+            "Series Instance UID",
         )
-        self.find_instances_button.setEnabled(False)
+
+        if series_instance_uid is None:
+            return
+
+        self.set_network_controls_enabled(False)
 
         self.find_result.clear()
         self.network_status_label.setStyleSheet("")
@@ -1532,6 +1850,11 @@ class DicomViewer(QMainWindow):
     def handle_instance_find_result(self, result):
         """Display Instance C-FIND results."""
         success, results, message = result
+
+        log_level = "SUCCESS" if success else "FAILED"
+        self.append_network_log(
+            f"{log_level}: {message}"
+        )
 
         if success:
             self.network_status_label.setStyleSheet(
@@ -1609,21 +1932,30 @@ class DicomViewer(QMainWindow):
             return
 
         if query_level == "STUDY":
-            active_button = self.move_study_button
             operation_name = "Study C-MOVE"
         else:
-            active_button = self.move_series_button
             operation_name = "Series C-MOVE"
 
-        study_instance_uid = (
-            self.find_study_uid_input.text()
-        )
-        series_instance_uid = (
-            self.find_series_uid_input.text()
+        study_instance_uid = self.validate_required_uid(
+            self.find_study_uid_input.text(),
+            "Study Instance UID",
         )
 
-        self.active_network_button = active_button
-        active_button.setEnabled(False)
+        if study_instance_uid is None:
+            return
+
+        series_instance_uid = ""
+
+        if query_level == "SERIES":
+            series_instance_uid = self.validate_required_uid(
+                self.find_series_uid_input.text(),
+                "Series Instance UID",
+            )
+
+            if series_instance_uid is None:
+                return
+
+        self.set_network_controls_enabled(False)
 
         self.find_result.clear()
         self.network_status_label.setStyleSheet("")
@@ -1666,6 +1998,11 @@ class DicomViewer(QMainWindow):
     def handle_move_result(self, result, query_level):
         """Display the result of an asynchronous C-MOVE."""
         success, counts, message = result
+
+        log_level = "SUCCESS" if success else "FAILED"
+        self.append_network_log(
+            f"{log_level}: {message}"
+        )
 
         if success:
             self.network_status_label.setStyleSheet(
@@ -1716,22 +2053,32 @@ class DicomViewer(QMainWindow):
             return
 
         if query_level == "STUDY":
-            active_button = self.get_study_button
             operation_name = "Study C-GET"
         else:
-            active_button = self.get_series_button
             operation_name = "Series C-GET"
 
-        study_instance_uid = (
-            self.find_study_uid_input.text()
+        study_instance_uid = self.validate_required_uid(
+            self.find_study_uid_input.text(),
+            "Study Instance UID",
         )
-        series_instance_uid = (
-            self.find_series_uid_input.text()
-        )
+
+        if study_instance_uid is None:
+            return
+
+        series_instance_uid = ""
+
+        if query_level == "SERIES":
+            series_instance_uid = self.validate_required_uid(
+                self.find_series_uid_input.text(),
+                "Series Instance UID",
+            )
+
+            if series_instance_uid is None:
+                return
+
         storage_dir = Path.cwd() / "received"
 
-        self.active_network_button = active_button
-        active_button.setEnabled(False)
+        self.set_network_controls_enabled(False)
 
         self.find_result.clear()
         self.network_status_label.setStyleSheet("")
@@ -1773,6 +2120,11 @@ class DicomViewer(QMainWindow):
         """Display the result of an asynchronous C-GET."""
         success, counts, message = result
 
+        log_level = "SUCCESS" if success else "FAILED"
+        self.append_network_log(
+            f"{log_level}: {message}"
+        )
+
         if success:
             self.network_status_label.setStyleSheet(
                 "color: green;"
@@ -1805,6 +2157,18 @@ class DicomViewer(QMainWindow):
                 "C-GET Error",
                 message,
             )
+
+    def update_network_progress(self, message):
+        """Display progress reported by the network worker."""
+        self.network_status_label.setStyleSheet(
+            "color: #b8860b;"
+        )
+        self.network_status_label.setText(
+            f"Network: {message}"
+        )
+
+        self.append_network_log(message)
+
 
 def main():
     app = QApplication(sys.argv)
