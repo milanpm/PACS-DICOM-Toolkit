@@ -22,7 +22,7 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ## Current Status
 
-**Day 20 — Network Validation, Logging, and Operation Control Completed**
+**Day 20.5 — Network Validation Refactoring Completed**
 
 - Added shared validation for Local and Remote AE Titles
 - Added IPv4 and IPv6 address validation
@@ -34,6 +34,11 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 - Disabled network settings and action controls while an operation is running
 - Restored controls according to the loaded DICOM file and Storage SCP state
 - Preserved background C-ECHO, C-STORE, C-FIND, C-MOVE, and C-GET operations
+- Extracted reusable validation rules from `main.py`
+- Added the dedicated `network_validation.py` module
+- Separated UI error presentation from input validation
+- Preserved existing validation messages and return behavior
+- Verified the refactoring with independent and GUI regression tests
 - Next step: **Day 21 — Network Cancellation and Timeout Handling**
 
 ## Features
@@ -1185,6 +1190,79 @@ the current application state:
 
 The GUI remains responsive because blocking DICOM operations
 continue to run through `NetworkWorker` and `QThread`.
+
+## Day 20.5 — Network Validation Refactoring
+
+Day 20.5 reorganized the validation code introduced on Day 20.
+The goal was to improve readability and maintainability without
+changing the application's visible behavior or DICOM network
+operations.
+
+### Problem
+
+The `DicomViewer` class in `main.py` handled multiple
+responsibilities:
+
+- Reading values from PyQt5 widgets
+- Validating AE Titles, IP addresses, ports, dates, and UIDs
+- Displaying validation errors
+- Recording network logs
+- Starting DICOM network operations
+
+As the application gained more features, keeping validation rules
+inside the main window class made the file longer and more
+difficult to modify safely.
+
+### Validation Module
+
+Reusable validation rules were moved to the new
+`network_validation.py` module.
+
+The module now provides:
+
+- `validate_ae_title()` for DICOM AE Title validation
+- `validate_port()` for TCP port validation
+- `validate_ip_address()` for IPv4 and IPv6 validation
+- `validate_network_connection()` for PACS connection settings
+- `validate_storage_scp()` for local Storage SCP settings
+- `validate_study_date_value()` for DICOM Study Date validation
+- `validate_dicom_uid()` for required DICOM UID validation
+
+A dedicated `ValidationError` exception carries both a
+user-friendly title and a detailed error message.
+
+### Separation of Responsibilities
+
+The responsibilities are now divided as follows:
+
+| Module | Responsibility |
+| ------ | -------------- |
+| `main.py` | Reads UI values and displays validation errors |
+| `network_validation.py` | Validates and normalizes input values |
+| `dicom_network.py` | Performs DICOM network communication |
+| `network_worker.py` | Runs blocking operations outside the GUI thread |
+
+The wrapper methods in `DicomViewer` preserve the existing return
+behavior expected by C-ECHO, C-STORE, C-FIND, C-MOVE, C-GET, and
+Storage SCP operations.
+
+### Verification
+
+The refactoring was verified with independent validation checks
+and GUI regression testing.
+
+Testing confirmed:
+
+- Valid PACS connection settings are normalized and accepted
+- Multiple invalid connection settings are reported together
+- Valid Storage SCP settings are accepted
+- Invalid Study Date formats and calendar dates are rejected
+- Valid DICOM UIDs are accepted
+- Invalid and missing DICOM UIDs are rejected
+- Invalid UID checks do not print unnecessary `pydicom` warnings
+- The application starts normally after the refactoring
+- Existing validation messages appear in the status area and log
+- Network UI behavior remains unchanged
 
 ## Disclaimer
 

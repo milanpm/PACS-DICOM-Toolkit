@@ -1,7 +1,7 @@
 """
 File Name: main.py
 Created Date: 2026-08-24
-Modified Date: 2026-09-08
+Modified Date: 2026-09-15
 Author: Alex
 Description:
     Provides the PyQt5 user interface for viewing, inspecting,
@@ -9,13 +9,11 @@ Description:
     PACS DICOM Toolkit.
 """
 
-import ipaddress
 import sys
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-from pydicom.uid import UID
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
@@ -52,6 +50,13 @@ from dicom_network import (
 )
 from image_view import ImageView
 from network_worker import NetworkWorker
+from network_validation import (
+    ValidationError,
+    validate_dicom_uid,
+    validate_network_connection,
+    validate_storage_scp,
+    validate_study_date_value,
+)
 from windowing import apply_window
 
 
@@ -73,91 +78,52 @@ class DicomViewer(QMainWindow):
         self.network_worker = None
 
     def validate_network_settings(self):
-        """Validate and normalize the PACS connection settings."""
-        local_ae_title = self.local_ae_input.text().strip()
-        remote_ae_title = self.remote_ae_input.text().strip()
-        remote_ip = self.remote_ip_input.text().strip()
-        remote_port = self.remote_port_spin.value()
-
-        errors = []
-
-        if not local_ae_title:
-            errors.append("Local AE Title is required.")
-        elif len(local_ae_title) > 16:
-            errors.append(
-                "Local AE Title must be 16 characters or fewer."
-            )
-
-        if not remote_ae_title:
-            errors.append("Remote AE Title is required.")
-        elif len(remote_ae_title) > 16:
-            errors.append(
-                "Remote AE Title must be 16 characters or fewer."
-            )
-
+        """Read and validate the PACS connection settings."""
         try:
-            ipaddress.ip_address(remote_ip)
-        except ValueError:
-            errors.append(
-                "Remote IP must be a valid IPv4 or IPv6 address."
+            settings = validate_network_connection(
+                self.local_ae_input.text(),
+                self.remote_ae_input.text(),
+                self.remote_ip_input.text(),
+                self.remote_port_spin.value(),
             )
-
-        if not 1 <= remote_port <= 65535:
-            errors.append(
-                "Remote Port must be between 1 and 65535."
-            )
-
-        if errors:
+        except ValidationError as error:
             self.show_validation_error(
-                "Invalid Network Settings",
-                "\n".join(errors),
+                error.title,
+                error.message,
             )
             return None
 
-        # 공백이 포함된 입력을 정규화된 값으로 다시 표시합니다.
-        self.local_ae_input.setText(local_ae_title)
-        self.remote_ae_input.setText(remote_ae_title)
-        self.remote_ip_input.setText(remote_ip)
+        self.local_ae_input.setText(
+            settings["local_ae_title"]
+        )
+        self.remote_ae_input.setText(
+            settings["remote_ae_title"]
+        )
+        self.remote_ip_input.setText(
+            settings["remote_ip"]
+        )
 
-        return {
-            "local_ae_title": local_ae_title,
-            "remote_ae_title": remote_ae_title,
-            "remote_ip": remote_ip,
-            "remote_port": remote_port,
-        }
+        return settings
 
     def validate_storage_scp_settings(self):
-        """Validate the local Storage SCP settings."""
-        local_ae_title = self.local_ae_input.text().strip()
-        local_port = self.scp_port_spin.value()
-
-        errors = []
-
-        if not local_ae_title:
-            errors.append("Local AE Title is required.")
-        elif len(local_ae_title) > 16:
-            errors.append(
-                "Local AE Title must be 16 characters or fewer."
+        """Read and validate the local Storage SCP settings."""
+        try:
+            settings = validate_storage_scp(
+                self.local_ae_input.text(),
+                self.scp_port_spin.value(),
             )
-
-        if not 1 <= local_port <= 65535:
-            errors.append(
-                "Storage SCP Port must be between 1 and 65535."
-            )
-
-        if errors:
+        except ValidationError as error:
             self.show_validation_error(
-                "Invalid Storage SCP Settings",
-                "\n".join(errors),
+                error.title,
+                error.message,
             )
             return None
 
-        self.local_ae_input.setText(local_ae_title)
+        self.local_ae_input.setText(
+            settings["local_ae_title"]
+        )
 
-        return {
-            "local_ae_title": local_ae_title,
-            "local_port": local_port,
-        }
+        return settings
 
     def show_validation_error(self, title, message):
         """Display an input validation error."""
@@ -179,25 +145,15 @@ class DicomViewer(QMainWindow):
         )
 
     def validate_study_date(self):
-        """Validate an optional DICOM Study Date filter."""
-        study_date = self.find_study_date_input.text().strip()
-
-        if not study_date:
-            return True
-
-        if len(study_date) != 8 or not study_date.isdigit():
-            self.show_validation_error(
-                "Invalid Study Date",
-                "Study Date must use the YYYYMMDD format.",
-            )
-            return False
-
+        """Validate the optional DICOM Study Date filter."""
         try:
-            datetime.strptime(study_date, "%Y%m%d")
-        except ValueError:
+            study_date = validate_study_date_value(
+                self.find_study_date_input.text()
+            )
+        except ValidationError as error:
             self.show_validation_error(
-                "Invalid Study Date",
-                "Study Date is not a valid calendar date.",
+                error.title,
+                error.message,
             )
             return False
 
@@ -206,23 +162,14 @@ class DicomViewer(QMainWindow):
 
     def validate_required_uid(self, value, name):
         """Validate a required DICOM UID."""
-        value = value.strip()
-
-        if not value:
+        try:
+            return validate_dicom_uid(value, name)
+        except ValidationError as error:
             self.show_validation_error(
-                f"Missing {name}",
-                f"{name} is required.",
+                error.title,
+                error.message,
             )
             return None
-
-        if not UID(value).is_valid:
-            self.show_validation_error(
-                f"Invalid {name}",
-                f"{name} is not a valid DICOM UID.",
-            )
-            return None
-
-        return value
 
     def append_network_log(self, message):
         """Append a timestamped message to the network log."""
