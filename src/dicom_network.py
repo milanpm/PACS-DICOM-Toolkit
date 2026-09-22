@@ -1,7 +1,7 @@
 """
 File Name: dicom_network.py
 Created Date: 2026-08-24
-Modified Date: 2026-09-02
+Modified Date: 2026-09-22
 Author: Alex
 Description:
     Provides DICOM networking functions for C-ECHO, C-STORE,
@@ -32,6 +32,7 @@ def verify_connection(
     remote_ae_title,
     remote_ip,
     remote_port,
+    cancel_callback=None,
 ):
     """Send a DICOM C-ECHO request to a remote Application Entity."""
     association = None
@@ -45,6 +46,7 @@ def verify_connection(
         ae = AE(ae_title=local_ae_title)
         ae.add_requested_context(Verification)
 
+        ae.connection_timeout = 5
         ae.acse_timeout = 5
         ae.dimse_timeout = 5
         ae.network_timeout = 5
@@ -56,7 +58,11 @@ def verify_connection(
         )
 
         if not association.is_established:
-            return False, "DICOM Association failed."
+            return False, "DICOM Association failed or timed out."
+
+        if cancel_callback and cancel_callback():
+            association.abort()
+            return False, "C-ECHO cancelled."
 
         status = association.send_c_echo()
 
@@ -86,6 +92,7 @@ def find_studies(
     patient_id="",
     patient_name="",
     study_date="",
+    cancel_callback=None,
 ):
     """Search studies from a remote PACS using DICOM C-FIND."""
     association = None
@@ -101,6 +108,7 @@ def find_studies(
             StudyRootQueryRetrieveInformationModelFind
         )
 
+        ae.connection_timeout = 5
         ae.acse_timeout = 5
         ae.dimse_timeout = 10
         ae.network_timeout = 10
@@ -112,7 +120,11 @@ def find_studies(
         )
 
         if not association.is_established:
-            return False, [], "DICOM Association failed."
+            return False, [], "DICOM Association failed or timed out."
+
+        if cancel_callback and cancel_callback():
+            association.abort()
+            return False, [], "C-FIND cancelled."
 
         query = Dataset()
         query.QueryRetrieveLevel = "STUDY"
@@ -136,6 +148,10 @@ def find_studies(
         )
 
         for status, identifier in responses:
+            if cancel_callback and cancel_callback():
+                association.abort()
+                return False, results, "C-FIND cancelled."
+
             if status is None:
                 return (
                     False,
@@ -179,6 +195,7 @@ def find_series(
     remote_ip,
     remote_port,
     study_instance_uid,
+    cancel_callback=None,
 ):
     """Search series in a study from a remote PACS using DICOM C-FIND."""
     association = None
@@ -198,6 +215,7 @@ def find_series(
             StudyRootQueryRetrieveInformationModelFind
         )
 
+        ae.connection_timeout = 5
         ae.acse_timeout = 5
         ae.dimse_timeout = 10
         ae.network_timeout = 10
@@ -209,7 +227,11 @@ def find_series(
         )
 
         if not association.is_established:
-            return False, [], "DICOM Association failed."
+            return False, [], "DICOM Association failed or timed out."
+
+        if cancel_callback and cancel_callback():
+            association.abort()
+            return False, [], "C-FIND cancelled."
 
         query = Dataset()
         query.QueryRetrieveLevel = "SERIES"
@@ -232,6 +254,10 @@ def find_series(
         )
 
         for status, identifier in responses:
+            if cancel_callback and cancel_callback():
+                association.abort()
+                return False, results, "C-FIND cancelled."
+
             if status is None:
                 return (
                     False,
@@ -276,6 +302,7 @@ def find_instances(
     remote_port,
     study_instance_uid,
     series_instance_uid,
+    cancel_callback=None,
 ):
     """Search instances in a series using DICOM C-FIND."""
     association = None
@@ -299,6 +326,7 @@ def find_instances(
             StudyRootQueryRetrieveInformationModelFind
         )
 
+        ae.connection_timeout = 5
         ae.acse_timeout = 5
         ae.dimse_timeout = 10
         ae.network_timeout = 10
@@ -310,7 +338,11 @@ def find_instances(
         )
 
         if not association.is_established:
-            return False, [], "DICOM Association failed."
+            return False, [], "DICOM Association failed or timed out."
+
+        if cancel_callback and cancel_callback():
+            association.abort()
+            return False, [], "C-FIND cancelled."
 
         query = Dataset()
         query.QueryRetrieveLevel = "IMAGE"
@@ -332,6 +364,10 @@ def find_instances(
         )
 
         for status, identifier in responses:
+            if cancel_callback and cancel_callback():
+                association.abort()
+                return False, results, "C-FIND cancelled."
+
             if status is None:
                 return (
                     False,
@@ -379,6 +415,7 @@ def move_instances(
     study_instance_uid,
     series_instance_uid="",
     progress_callback=None,
+    cancel_callback=None,
 ):
     """Retrieve DICOM instances using C-MOVE."""
     association = None
@@ -428,6 +465,7 @@ def move_instances(
             StudyRootQueryRetrieveInformationModelMove
         )
 
+        ae.connection_timeout = 5
         ae.acse_timeout = 5
         ae.dimse_timeout = 30
         ae.network_timeout = 30
@@ -439,7 +477,11 @@ def move_instances(
         )
 
         if not association.is_established:
-            return False, {}, "DICOM Association failed."
+            return False, {}, "DICOM Association failed or timed out."
+
+        if cancel_callback and cancel_callback():
+            association.abort()
+            return False, {}, "C-MOVE cancelled."
 
         identifier = Dataset()
         identifier.QueryRetrieveLevel = query_level
@@ -462,6 +504,10 @@ def move_instances(
         )
 
         for status, _ in responses:
+            if cancel_callback and cancel_callback():
+                association.abort()
+                return False, counts, "C-MOVE cancelled."
+
             if status is None:
                 return (
                     False,
@@ -570,6 +616,7 @@ def get_instances(
     storage_dir,
     series_instance_uid="",
     progress_callback=None,
+    cancel_callback=None,
 ):
     """Retrieve DICOM instances using C-GET."""
     association = None
@@ -620,6 +667,7 @@ def get_instances(
             scp_role=True,
         )
 
+        ae.connection_timeout = 5
         ae.acse_timeout = 5
         ae.dimse_timeout = 30
         ae.network_timeout = 30
@@ -641,7 +689,11 @@ def get_instances(
         )
 
         if not association.is_established:
-            return False, {}, "DICOM Association failed."
+            return False, {}, "DICOM Association failed or timed out."
+
+        if cancel_callback and cancel_callback():
+            association.abort()
+            return False, {}, "C-GET cancelled."
 
         identifier = Dataset()
         identifier.QueryRetrieveLevel = query_level
@@ -663,6 +715,10 @@ def get_instances(
         )
 
         for status, _ in responses:
+            if cancel_callback and cancel_callback():
+                association.abort()
+                return False, counts, "C-GET cancelled."
+
             if status is None:
                 return (
                     False,
@@ -767,6 +823,7 @@ def send_dicom_file(
     remote_ae_title,
     remote_ip,
     remote_port,
+    cancel_callback=None,
 ):
     """Send a DICOM file to a remote Storage SCP using C-STORE."""
     association = None
@@ -789,6 +846,7 @@ def send_dicom_file(
 
         ae.add_requested_context(dataset.SOPClassUID)
 
+        ae.connection_timeout = 5
         ae.acse_timeout = 5
         ae.dimse_timeout = 10
         ae.network_timeout = 10
@@ -800,7 +858,11 @@ def send_dicom_file(
         )
 
         if not association.is_established:
-            return False, "DICOM Association failed."
+            return False, "DICOM Association failed or timed out."
+
+        if cancel_callback and cancel_callback():
+            association.abort()
+            return False, "C-STORE cancelled."
 
         status = association.send_c_store(dataset)
 

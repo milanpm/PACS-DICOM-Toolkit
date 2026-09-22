@@ -22,24 +22,24 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ## Current Status
 
-**Day 20.5 — Network Validation Refactoring Completed**
+**Day 21 — Network Cancellation and Timeout Handling Completed**
 
-- Added shared validation for Local and Remote AE Titles
-- Added IPv4 and IPv6 address validation
-- Added Remote PACS and Storage SCP port validation
-- Added `YYYYMMDD` Study Date validation
-- Added required Study and Series Instance UID validation
-- Added timestamped network operation logs
-- Added Storage SCP start, stop, success, and error logs
-- Disabled network settings and action controls while an operation is running
-- Restored controls according to the loaded DICOM file and Storage SCP state
-- Preserved background C-ECHO, C-STORE, C-FIND, C-MOVE, and C-GET operations
-- Extracted reusable validation rules from `main.py`
-- Added the dedicated `network_validation.py` module
-- Separated UI error presentation from input validation
-- Preserved existing validation messages and return behavior
-- Verified the refactoring with independent and GUI regression tests
-- Next step: **Day 21 — Network Cancellation and Timeout Handling**
+- Added cooperative cancellation using `threading.Event`
+- Added a `cancelled` signal to `NetworkWorker`
+- Added the `Cancel Operation` button to the Network tab
+- Disabled the cancel button after the first cancellation request
+- Added cancellation support to all seven DICOM SCU operations
+- Added cancellation checks after Association and during multi-response operations
+- Aborted active Associations safely when cancellation was detected
+- Added a five-second TCP connection timeout
+- Preserved ACSE, DIMSE, and network timeout settings
+- Distinguished user cancellation from connection failure or timeout
+- Restored network controls automatically after cancellation
+- Verified C-ECHO cancellation during a blocked connection attempt
+- Reduced observed cancellation completion from approximately 18 seconds to 1–2 seconds
+- Verified connection failure and timeout reporting
+- Verified successful C-ECHO regression result `0x0000`
+- Next step: **Day 22 — Network Worker Lifecycle Refactoring**
 
 ## Features
 
@@ -322,6 +322,9 @@ received/<SOPInstanceUID>.dcm
 |   17 | DICOM Retrieval with C-MOVE           | Completed |
 |   18 | DICOM Retrieval with C-GET            | Completed |
 |   19 | Network UI and Background Operations  | Completed |
+|   20 | Network Validation, Logging, and Control | Completed |
+| 20.5 | Network Validation Refactoring          | Completed |
+|   21 | Network Cancellation and Timeout Handling | Completed |
 
 ## Day 11 — Viewer Refactoring
 
@@ -1263,6 +1266,140 @@ Testing confirmed:
 - The application starts normally after the refactoring
 - Existing validation messages appear in the status area and log
 - Network UI behavior remains unchanged
+
+## Day 21 — Network Cancellation and Timeout Handling
+
+Day 21 added cooperative cancellation and explicit timeout handling
+to the asynchronous DICOM network operations.
+
+The goal was to let the user request cancellation without forcibly
+terminating a `QThread` or leaving a DICOM Association and network
+resources in an unsafe state.
+
+### Cooperative Cancellation
+
+`NetworkWorker` now owns a thread-safe `threading.Event`.
+
+When the user selects `Cancel Operation`, the GUI calls:
+
+```python
+self.network_worker.request_cancel()
+```
+
+The worker records the request by setting the Event. Network
+operations receive `is_cancel_requested()` as a callback and check
+it at safe interruption points.
+
+This approach is cooperative cancellation. The worker thread is not
+terminated forcibly.
+
+### Cancellation Flow
+
+The cancellation sequence is:
+
+1. The user starts a DICOM network operation.
+2. Network controls are disabled and the cancel button is enabled.
+3. The operation runs in `NetworkWorker`.
+4. The user selects `Cancel Operation`.
+5. The worker records the cancellation request.
+6. The network function detects the request.
+7. An established Association is aborted safely.
+8. The worker emits the `cancelled` signal.
+9. The GUI records the cancellation and restores its controls.
+
+The cancel button becomes disabled immediately after the first
+request to prevent duplicate cancellation requests.
+
+### Supported Operations
+
+Cancellation support was added to all seven SCU operation paths:
+
+- C-ECHO
+- C-STORE
+- Study C-FIND
+- Series C-FIND
+- Instance C-FIND
+- C-MOVE
+- C-GET
+
+C-FIND, C-MOVE, and C-GET check for cancellation while processing
+multiple responses. C-ECHO and C-STORE check after Association and
+rely on their configured timeout when blocked inside a request.
+
+### Association Cleanup
+
+Normal operations use:
+
+```python
+association.release()
+```
+
+Cancelled operations use:
+
+```python
+association.abort()
+```
+
+`release()` performs a negotiated, normal Association shutdown.
+`abort()` ends an Association when the current operation cannot
+continue normally.
+
+### Timeout Configuration
+
+Each DICOM SCU now uses an explicit TCP connection timeout in
+addition to the existing DICOM networking timeouts.
+
+| Timeout | Purpose |
+| ------- | ------- |
+| `connection_timeout` | Limits the TCP connection attempt |
+| `acse_timeout` | Limits Association control operations |
+| `dimse_timeout` | Limits DIMSE response waiting |
+| `network_timeout` | Limits network inactivity |
+
+The TCP connection timeout is configured as:
+
+```python
+ae.connection_timeout = 5
+```
+
+Before this setting was added, `connection_timeout` was `None`, so
+the operating system controlled how long a blocked TCP connection
+attempt could wait.
+
+### Status and Logging
+
+Cancellation and connection failure or timeout are reported
+separately.
+
+Example cancellation log:
+
+```text
+[14:10:02] C-ECHO: Working...
+[14:10:06] C-ECHO: Cancellation requested...
+[14:10:07] CANCELLED: C-ECHO cancelled
+```
+
+Example connection failure or timeout log:
+
+```text
+[14:12:37] C-ECHO: Working...
+[14:12:42] FAILED: DICOM Association failed or timed out.
+```
+
+### Verification
+
+Testing confirmed:
+
+- The `Cancel Operation` button is enabled only during an operation
+- Duplicate cancellation requests are prevented
+- C-ECHO cancellation is reported through the `cancelled` signal
+- Network controls are restored after cancellation
+- A blocked connection attempt respects the five-second connection timeout
+- Observed cancellation completion improved from approximately
+  18 seconds to 1–2 seconds
+- Connection failure or timeout is reported without freezing the GUI
+- A running test PACS still returns `C-ECHO Success: 0x0000`
+- All Python source files pass compilation checks
 
 ## Disclaimer
 

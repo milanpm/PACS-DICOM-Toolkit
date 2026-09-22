@@ -1,7 +1,7 @@
 """
 File Name: main.py
 Created Date: 2026-08-24
-Modified Date: 2026-09-15
+Modified Date: 2026-09-22
 Author: Alex
 Description:
     Provides the PyQt5 user interface for viewing, inspecting,
@@ -180,6 +180,8 @@ class DicomViewer(QMainWindow):
 
     def set_network_controls_enabled(self, enabled):
         """Enable or disable controls during a network operation."""
+        self.cancel_button.setEnabled(not enabled)
+
         connection_controls = [
             self.local_ae_input,
             self.remote_ae_input,
@@ -286,6 +288,9 @@ class DicomViewer(QMainWindow):
         )
         self.store_button.clicked.connect(
             self.send_c_store
+        )
+        self.cancel_button.clicked.connect(
+            self.cancel_network_operation
         )
         self.start_scp_button.clicked.connect(
             self.start_storage_server
@@ -415,6 +420,9 @@ class DicomViewer(QMainWindow):
         self.stop_scp_button.setEnabled(False)
 
         self.network_status_label = QLabel("Network: Not tested")
+
+        self.cancel_button = QPushButton("Cancel Operation")
+        self.cancel_button.setEnabled(False)
 
         self.find_patient_id_input = QLineEdit()
         self.find_patient_id_input.setPlaceholderText("Patient ID")
@@ -584,6 +592,7 @@ class DicomViewer(QMainWindow):
         self.network_status_label.setWordWrap(True)
 
         result_layout.addWidget(self.network_status_label)
+        result_layout.addWidget(self.cancel_button)
         result_layout.addWidget(QLabel("Network Log"))
         result_layout.addWidget(self.network_log)
         result_layout.addWidget(QLabel("Query/Retrieve Results"))
@@ -1201,6 +1210,7 @@ class DicomViewer(QMainWindow):
             settings["remote_ae_title"],
             settings["remote_ip"],
             settings["remote_port"],
+            enable_cancellation=True,
         )
 
         self.network_worker.progress.connect(
@@ -1208,6 +1218,9 @@ class DicomViewer(QMainWindow):
         )
         self.network_worker.result.connect(
             self.handle_echo_result
+        )
+        self.network_worker.cancelled.connect(
+            self.handle_network_cancelled
         )
         self.network_worker.error.connect(
             self.handle_network_error
@@ -1260,6 +1273,30 @@ class DicomViewer(QMainWindow):
 
         self.network_status_label.setText(
             f"Network: {message}"
+        )
+
+    def cancel_network_operation(self):
+        """Request cancellation of the active network operation."""
+        if (
+            self.network_worker is None
+            or not self.network_worker.isRunning()
+        ):
+            return
+
+        self.cancel_button.setEnabled(False)
+        self.network_worker.request_cancel()
+
+    def handle_network_cancelled(self, message):
+        """Display a cancelled network operation."""
+        self.network_status_label.setStyleSheet(
+            "color: #b8860b;"
+        )
+        self.network_status_label.setText(
+            f"Network: {message}"
+        )
+
+        self.append_network_log(
+            f"CANCELLED: {message}"
         )
 
     def handle_network_error(self, message):
@@ -1327,6 +1364,7 @@ class DicomViewer(QMainWindow):
             settings["remote_ae_title"],
             settings["remote_ip"],
             settings["remote_port"],
+            enable_cancellation=True,
         )
 
         self.network_worker.progress.connect(
@@ -1334,6 +1372,9 @@ class DicomViewer(QMainWindow):
         )
         self.network_worker.result.connect(
             self.handle_store_result
+        )
+        self.network_worker.cancelled.connect(
+            self.handle_network_cancelled
         )
         self.network_worker.error.connect(
             self.handle_network_error
@@ -1525,6 +1566,7 @@ class DicomViewer(QMainWindow):
         self.network_worker = NetworkWorker(
             "Study C-FIND",
             find_studies,
+            enable_cancellation=True,
             local_ae_title=self.local_ae_input.text(),
             remote_ae_title=self.remote_ae_input.text(),
             remote_ip=self.remote_ip_input.text(),
@@ -1539,6 +1581,9 @@ class DicomViewer(QMainWindow):
         )
         self.network_worker.result.connect(
             self.handle_study_find_result
+        )
+        self.network_worker.cancelled.connect(
+            self.handle_network_cancelled
         )
         self.network_worker.error.connect(
             self.handle_network_error
@@ -1648,6 +1693,7 @@ class DicomViewer(QMainWindow):
         self.network_worker = NetworkWorker(
             "Series C-FIND",
             find_series,
+            enable_cancellation=True,
             local_ae_title=self.local_ae_input.text(),
             remote_ae_title=self.remote_ae_input.text(),
             remote_ip=self.remote_ip_input.text(),
@@ -1660,6 +1706,9 @@ class DicomViewer(QMainWindow):
         )
         self.network_worker.result.connect(
             self.handle_series_find_result
+        )
+        self.network_worker.cancelled.connect(
+            self.handle_network_cancelled
         )
         self.network_worker.error.connect(
             self.handle_network_error
@@ -1771,6 +1820,7 @@ class DicomViewer(QMainWindow):
         self.network_worker = NetworkWorker(
             "Instance C-FIND",
             find_instances,
+            enable_cancellation=True,
             local_ae_title=self.local_ae_input.text(),
             remote_ae_title=self.remote_ae_input.text(),
             remote_ip=self.remote_ip_input.text(),
@@ -1784,6 +1834,9 @@ class DicomViewer(QMainWindow):
         )
         self.network_worker.result.connect(
             self.handle_instance_find_result
+        )
+        self.network_worker.cancelled.connect(
+            self.handle_network_cancelled
         )
         self.network_worker.error.connect(
             self.handle_network_error
@@ -1914,6 +1967,7 @@ class DicomViewer(QMainWindow):
             operation_name,
             move_instances,
             enable_progress=True,
+            enable_cancellation=True,
             local_ae_title=self.local_ae_input.text(),
             remote_ae_title=self.remote_ae_input.text(),
             remote_ip=self.remote_ip_input.text(),
@@ -1932,6 +1986,9 @@ class DicomViewer(QMainWindow):
         self.network_worker.result.connect(
             lambda result, level=query_level:
             self.handle_move_result(result, level)
+        )
+        self.network_worker.cancelled.connect(
+            self.handle_network_cancelled
         )
         self.network_worker.error.connect(
             self.handle_network_error
@@ -2037,6 +2094,7 @@ class DicomViewer(QMainWindow):
             operation_name,
             get_instances,
             enable_progress=True,
+            enable_cancellation=True,
             local_ae_title=self.local_ae_input.text(),
             remote_ae_title=self.remote_ae_input.text(),
             remote_ip=self.remote_ip_input.text(),
@@ -2053,6 +2111,9 @@ class DicomViewer(QMainWindow):
         self.network_worker.result.connect(
             lambda result, level=query_level:
             self.handle_get_result(result, level)
+        )
+        self.network_worker.cancelled.connect(
+            self.handle_network_cancelled
         )
         self.network_worker.error.connect(
             self.handle_network_error
