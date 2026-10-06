@@ -1183,12 +1183,50 @@ class DicomViewer(QMainWindow):
         self.distance_label.setText("Distance: -")
         self.clear_roi_measurement()
 
+    def start_network_operation(
+        self,
+        operation_name,
+        operation,
+        *args,
+        result_handler,
+        enable_progress=False,
+        enable_cancellation=True,
+        **kwargs,
+    ):
+        """Create, connect, and start one network worker."""
+        # Wait until the previous worker's cleanup is complete.
+        if self.network_worker is not None:
+            return False
+
+        worker = NetworkWorker(
+            operation_name,
+            operation,
+            *args,
+            enable_progress=enable_progress,
+            enable_cancellation=enable_cancellation,
+            **kwargs,
+        )
+
+        worker.progress.connect(self.update_network_progress)
+        worker.result.connect(result_handler)
+        worker.cancelled.connect(self.handle_network_cancelled)
+        worker.error.connect(self.handle_network_error)
+        worker.finished.connect(self.finish_network_operation)
+
+        self.network_worker = worker
+
+        self.set_network_controls_enabled(False)
+        self.network_status_label.setStyleSheet("")
+        self.network_status_label.setText(
+            f"Network: Starting {operation_name}..."
+        )
+
+        worker.start()
+        return True
+
     def send_c_echo(self):
         """Send a C-ECHO request in a background thread."""
-        if (
-            self.network_worker is not None
-            and self.network_worker.isRunning()
-        ):
+        if self.network_worker is not None:
             return
 
         settings = self.validate_network_settings()
@@ -1196,40 +1234,15 @@ class DicomViewer(QMainWindow):
         if settings is None:
             return
 
-        self.set_network_controls_enabled(False)
-
-        self.network_status_label.setStyleSheet("")
-        self.network_status_label.setText(
-            "Network: Starting C-ECHO..."
-        )
-
-        self.network_worker = NetworkWorker(
+        self.start_network_operation(
             "C-ECHO",
             verify_connection,
             settings["local_ae_title"],
             settings["remote_ae_title"],
             settings["remote_ip"],
             settings["remote_port"],
-            enable_cancellation=True,
+            result_handler=self.handle_echo_result,
         )
-
-        self.network_worker.progress.connect(
-            self.update_network_progress
-        )
-        self.network_worker.result.connect(
-            self.handle_echo_result
-        )
-        self.network_worker.cancelled.connect(
-            self.handle_network_cancelled
-        )
-        self.network_worker.error.connect(
-            self.handle_network_error
-        )
-        self.network_worker.finished.connect(
-            self.finish_network_operation
-        )
-
-        self.network_worker.start()
 
     def handle_echo_result(self, result):
         """Display the result of an asynchronous C-ECHO."""
@@ -1319,15 +1332,25 @@ class DicomViewer(QMainWindow):
         )
 
     def finish_network_operation(self):
-        """Restore controls after a network operation."""
-        self.set_network_controls_enabled(True)
+        """Clean up the finished worker and restore controls."""
+        worker = self.sender()
 
-        if self.network_worker is not None:
-            self.network_worker.deleteLater()
-            self.network_worker = None
+        if worker is None:
+            return
+
+        worker.deleteLater()
+
+        if worker is not self.network_worker:
+            return
+
+        self.network_worker = None
+        self.set_network_controls_enabled(True)
 
     def send_c_store(self):
         """Send the current DICOM file in a background thread."""
+        if self.network_worker is not None:
+            return
+
         if not self.current_file_path:
             QMessageBox.warning(
                 self,
@@ -1336,54 +1359,21 @@ class DicomViewer(QMainWindow):
             )
             return
 
-        if (
-            self.network_worker is not None
-            and self.network_worker.isRunning()
-        ):
-            return
-
         settings = self.validate_network_settings()
 
         if settings is None:
             return
 
-        file_path = self.current_file_path
-
-        self.set_network_controls_enabled(False)
-
-        self.network_status_label.setStyleSheet("")
-        self.network_status_label.setText(
-            "Network: Starting C-STORE..."
-        )
-
-        self.network_worker = NetworkWorker(
+        self.start_network_operation(
             "C-STORE",
             send_dicom_file,
-            file_path,
+            self.current_file_path,
             settings["local_ae_title"],
             settings["remote_ae_title"],
             settings["remote_ip"],
             settings["remote_port"],
-            enable_cancellation=True,
+            result_handler=self.handle_store_result,
         )
-
-        self.network_worker.progress.connect(
-            self.update_network_progress
-        )
-        self.network_worker.result.connect(
-            self.handle_store_result
-        )
-        self.network_worker.cancelled.connect(
-            self.handle_network_cancelled
-        )
-        self.network_worker.error.connect(
-            self.handle_network_error
-        )
-        self.network_worker.finished.connect(
-            self.finish_network_operation
-        )
-
-        self.network_worker.start()
 
     def start_storage_server(self):
         """Start the local DICOM Storage SCP."""
