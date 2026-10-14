@@ -1,7 +1,7 @@
 """
 File Name: find_scp.py
 Created Date: 2026-08-24
-Modified Date: 2026-09-01
+Modified Date: 2026-10-14
 Author: Alex
 Description:
     Provides a test DICOM Query/Retrieve SCP supporting hierarchical
@@ -11,6 +11,7 @@ Description:
 
 from copy import deepcopy
 from pathlib import Path
+from time import sleep
 
 from pydicom import dcmread
 from pydicom.dataset import Dataset
@@ -328,6 +329,13 @@ def handle_move(event):
             yield 0xFE00, None
             return
 
+        # Test-only delay to allow manual cancellation.
+        sleep(1.0)
+
+        if event.is_cancelled:
+            yield 0xFE00, None
+            return
+
         print(
             "Sending instance: "
             f"{instance.SOPInstanceUID}"
@@ -389,6 +397,13 @@ def handle_get(event):
     yield len(matching_instances)
 
     for instance in matching_instances:
+        if event.is_cancelled:
+            yield 0xFE00, None
+            return
+
+        # Test-only delay to allow manual cancellation.
+        sleep(1.0)
+
         if event.is_cancelled:
             yield 0xFE00, None
             return

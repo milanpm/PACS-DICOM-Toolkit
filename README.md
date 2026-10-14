@@ -1445,9 +1445,34 @@ starting. Required UID checks and existing result handlers are preserved.
 The refactoring removed duplicated lifecycle code from the three
 C-FIND methods, reducing `src/main.py` by a net total of 73 lines.
 
+### Part 3 — C-MOVE and C-GET
+
+- Applied `start_network_operation()` to Study/Series C-MOVE and C-GET.
+- Used validated network settings for both operations.
+- Preserved UID validation, progress reporting, cancellation,
+  result handlers, and the C-GET storage directory.
+- Blocked new operations until the previous worker cleanup completed.
+- Centralized GUI worker creation in one location.
+- Added a one-second delay before each test C-MOVE/C-GET instance
+  transfer, with cancellation checks before and after the delay.
+
+Validation:
+- Python syntax compilation and `git diff --check`: passed.
+- C-ECHO: success.
+- C-FIND: 1 study, 2 series, and 3 instances in the selected series.
+- Study/Series C-GET: 4/3 completed, no failures or warnings.
+- Study/Series C-MOVE: 4/3 completed, no failures or warnings.
+- Missing Series Instance UID: blocked by validation.
+- Association failure: subsequent operations remained available.
+- C-GET and C-MOVE: cancellation displayed; subsequent C-ECHO succeeded.
+
+Limitation:
+- Server-side handling of C-CANCEL was not independently verified.
+
 ### Next Step
 
-Apply the shared worker lifecycle to C-MOVE and C-GET in Day 22 Part 3.
+Document the completed worker lifecycle refactoring and verification
+results in the next blog post.
 
 ## Disclaimer
 

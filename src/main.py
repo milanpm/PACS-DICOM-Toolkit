@@ -1,7 +1,7 @@
 """
 File Name: main.py
 Created Date: 2026-08-24
-Modified Date: 2026-09-22
+Modified Date: 2026-10-14
 Author: Alex
 Description:
     Provides the PyQt5 user interface for viewing, inspecting,
@@ -1823,6 +1823,9 @@ class DicomViewer(QMainWindow):
 
     def send_c_move(self, query_level):
         """Request C-MOVE retrieval in a background thread."""
+        if self.network_worker is not None:
+            return
+
         if self.storage_server is None:
             message = (
                 "Start the local Storage SCP before C-MOVE."
@@ -1842,10 +1845,9 @@ class DicomViewer(QMainWindow):
             )
             return
 
-        if (
-            self.network_worker is not None
-            and self.network_worker.isRunning()
-        ):
+        settings = self.validate_network_settings()
+
+        if settings is None:
             return
 
         if query_level == "STUDY":
@@ -1872,49 +1874,28 @@ class DicomViewer(QMainWindow):
             if series_instance_uid is None:
                 return
 
-        self.set_network_controls_enabled(False)
-
         self.find_result.clear()
-        self.network_status_label.setStyleSheet("")
-        self.network_status_label.setText(
-            f"Network: Starting {operation_name}..."
-        )
 
-        self.network_worker = NetworkWorker(
+        self.start_network_operation(
             operation_name,
             move_instances,
+            result_handler=(
+                lambda result, level=query_level:
+                self.handle_move_result(result, level)
+            ),
             enable_progress=True,
             enable_cancellation=True,
-            local_ae_title=self.local_ae_input.text(),
-            remote_ae_title=self.remote_ae_input.text(),
-            remote_ip=self.remote_ip_input.text(),
-            remote_port=self.remote_port_spin.value(),
+            local_ae_title=settings["local_ae_title"],
+            remote_ae_title=settings["remote_ae_title"],
+            remote_ip=settings["remote_ip"],
+            remote_port=settings["remote_port"],
             move_destination_ae_title=(
-                self.local_ae_input.text()
+                settings["local_ae_title"]
             ),
             query_level=query_level,
             study_instance_uid=study_instance_uid,
             series_instance_uid=series_instance_uid,
         )
-
-        self.network_worker.progress.connect(
-            self.update_network_progress
-        )
-        self.network_worker.result.connect(
-            lambda result, level=query_level:
-            self.handle_move_result(result, level)
-        )
-        self.network_worker.cancelled.connect(
-            self.handle_network_cancelled
-        )
-        self.network_worker.error.connect(
-            self.handle_network_error
-        )
-        self.network_worker.finished.connect(
-            self.finish_network_operation
-        )
-
-        self.network_worker.start()
 
     def handle_move_result(self, result, query_level):
         """Display the result of an asynchronous C-MOVE."""
@@ -1967,10 +1948,12 @@ class DicomViewer(QMainWindow):
 
     def send_c_get(self, query_level):
         """Request C-GET retrieval in a background thread."""
-        if (
-            self.network_worker is not None
-            and self.network_worker.isRunning()
-        ):
+        if self.network_worker is not None:
+            return
+
+        settings = self.validate_network_settings()
+
+        if settings is None:
             return
 
         if query_level == "STUDY":
@@ -1999,47 +1982,26 @@ class DicomViewer(QMainWindow):
 
         storage_dir = Path.cwd() / "received"
 
-        self.set_network_controls_enabled(False)
-
         self.find_result.clear()
-        self.network_status_label.setStyleSheet("")
-        self.network_status_label.setText(
-            f"Network: Starting {operation_name}..."
-        )
 
-        self.network_worker = NetworkWorker(
+        self.start_network_operation(
             operation_name,
             get_instances,
+            result_handler=(
+                lambda result, level=query_level:
+                self.handle_get_result(result, level)
+            ),
             enable_progress=True,
             enable_cancellation=True,
-            local_ae_title=self.local_ae_input.text(),
-            remote_ae_title=self.remote_ae_input.text(),
-            remote_ip=self.remote_ip_input.text(),
-            remote_port=self.remote_port_spin.value(),
+            local_ae_title=settings["local_ae_title"],
+            remote_ae_title=settings["remote_ae_title"],
+            remote_ip=settings["remote_ip"],
+            remote_port=settings["remote_port"],
             query_level=query_level,
             study_instance_uid=study_instance_uid,
             series_instance_uid=series_instance_uid,
             storage_dir=storage_dir,
         )
-
-        self.network_worker.progress.connect(
-            self.update_network_progress
-        )
-        self.network_worker.result.connect(
-            lambda result, level=query_level:
-            self.handle_get_result(result, level)
-        )
-        self.network_worker.cancelled.connect(
-            self.handle_network_cancelled
-        )
-        self.network_worker.error.connect(
-            self.handle_network_error
-        )
-        self.network_worker.finished.connect(
-            self.finish_network_operation
-        )
-
-        self.network_worker.start()
 
     def handle_get_result(self, result, query_level):
         """Display the result of an asynchronous C-GET."""
