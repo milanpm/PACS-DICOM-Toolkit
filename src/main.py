@@ -1527,11 +1527,8 @@ class DicomViewer(QMainWindow):
         event.accept()
 
     def send_c_find(self):
-        """Search studies in a background thread."""
-        if (
-            self.network_worker is not None
-            and self.network_worker.isRunning()
-        ):
+        """Search studies using the shared worker lifecycle."""
+        if self.network_worker is not None:
             return
 
         settings = self.validate_network_settings()
@@ -1544,45 +1541,20 @@ class DicomViewer(QMainWindow):
 
         self.find_study_uid_input.clear()
         self.find_series_uid_input.clear()
-
-        self.set_network_controls_enabled(False)
-
         self.find_result.clear()
-        self.network_status_label.setStyleSheet("")
-        self.network_status_label.setText(
-            "Network: Starting Study C-FIND..."
-        )
 
-        self.network_worker = NetworkWorker(
+        self.start_network_operation(
             "Study C-FIND",
             find_studies,
-            enable_cancellation=True,
-            local_ae_title=self.local_ae_input.text(),
-            remote_ae_title=self.remote_ae_input.text(),
-            remote_ip=self.remote_ip_input.text(),
-            remote_port=self.remote_port_spin.value(),
+            result_handler=self.handle_study_find_result,
+            local_ae_title=settings["local_ae_title"],
+            remote_ae_title=settings["remote_ae_title"],
+            remote_ip=settings["remote_ip"],
+            remote_port=settings["remote_port"],
             patient_id=self.find_patient_id_input.text(),
             patient_name=self.find_patient_name_input.text(),
             study_date=self.find_study_date_input.text(),
         )
-
-        self.network_worker.progress.connect(
-            self.update_network_progress
-        )
-        self.network_worker.result.connect(
-            self.handle_study_find_result
-        )
-        self.network_worker.cancelled.connect(
-            self.handle_network_cancelled
-        )
-        self.network_worker.error.connect(
-            self.handle_network_error
-        )
-        self.network_worker.finished.connect(
-            self.finish_network_operation
-        )
-
-        self.network_worker.start()
 
     def handle_study_find_result(self, result):
         """Display Study C-FIND results."""
@@ -1655,11 +1627,13 @@ class DicomViewer(QMainWindow):
         )
 
     def send_series_find(self):
-        """Search series in a background thread."""
-        if (
-            self.network_worker is not None
-            and self.network_worker.isRunning()
-        ):
+        """Search series using the shared worker lifecycle."""
+        if self.network_worker is not None:
+            return
+
+        settings = self.validate_network_settings()
+
+        if settings is None:
             return
 
         study_instance_uid = self.validate_required_uid(
@@ -1671,43 +1645,18 @@ class DicomViewer(QMainWindow):
             return
 
         self.find_series_uid_input.clear()
-
-        self.set_network_controls_enabled(False)
-
         self.find_result.clear()
-        self.network_status_label.setStyleSheet("")
-        self.network_status_label.setText(
-            "Network: Starting Series C-FIND..."
-        )
 
-        self.network_worker = NetworkWorker(
+        self.start_network_operation(
             "Series C-FIND",
             find_series,
-            enable_cancellation=True,
-            local_ae_title=self.local_ae_input.text(),
-            remote_ae_title=self.remote_ae_input.text(),
-            remote_ip=self.remote_ip_input.text(),
-            remote_port=self.remote_port_spin.value(),
+            result_handler=self.handle_series_find_result,
+            local_ae_title=settings["local_ae_title"],
+            remote_ae_title=settings["remote_ae_title"],
+            remote_ip=settings["remote_ip"],
+            remote_port=settings["remote_port"],
             study_instance_uid=study_instance_uid,
         )
-
-        self.network_worker.progress.connect(
-            self.update_network_progress
-        )
-        self.network_worker.result.connect(
-            self.handle_series_find_result
-        )
-        self.network_worker.cancelled.connect(
-            self.handle_network_cancelled
-        )
-        self.network_worker.error.connect(
-            self.handle_network_error
-        )
-        self.network_worker.finished.connect(
-            self.finish_network_operation
-        )
-
-        self.network_worker.start()
 
     def handle_series_find_result(self, result):
         """Display Series C-FIND results."""
@@ -1776,11 +1725,13 @@ class DicomViewer(QMainWindow):
         )
 
     def send_instance_find(self):
-        """Search instances in a background thread."""
-        if (
-            self.network_worker is not None
-            and self.network_worker.isRunning()
-        ):
+        """Search instances using the shared worker lifecycle."""
+        if self.network_worker is not None:
+            return
+
+        settings = self.validate_network_settings()
+
+        if settings is None:
             return
 
         study_instance_uid = self.validate_required_uid(
@@ -1799,43 +1750,19 @@ class DicomViewer(QMainWindow):
         if series_instance_uid is None:
             return
 
-        self.set_network_controls_enabled(False)
-
         self.find_result.clear()
-        self.network_status_label.setStyleSheet("")
-        self.network_status_label.setText(
-            "Network: Starting Instance C-FIND..."
-        )
 
-        self.network_worker = NetworkWorker(
+        self.start_network_operation(
             "Instance C-FIND",
             find_instances,
-            enable_cancellation=True,
-            local_ae_title=self.local_ae_input.text(),
-            remote_ae_title=self.remote_ae_input.text(),
-            remote_ip=self.remote_ip_input.text(),
-            remote_port=self.remote_port_spin.value(),
+            result_handler=self.handle_instance_find_result,
+            local_ae_title=settings["local_ae_title"],
+            remote_ae_title=settings["remote_ae_title"],
+            remote_ip=settings["remote_ip"],
+            remote_port=settings["remote_port"],
             study_instance_uid=study_instance_uid,
             series_instance_uid=series_instance_uid,
         )
-
-        self.network_worker.progress.connect(
-            self.update_network_progress
-        )
-        self.network_worker.result.connect(
-            self.handle_instance_find_result
-        )
-        self.network_worker.cancelled.connect(
-            self.handle_network_cancelled
-        )
-        self.network_worker.error.connect(
-            self.handle_network_error
-        )
-        self.network_worker.finished.connect(
-            self.finish_network_operation
-        )
-
-        self.network_worker.start()
 
     def handle_instance_find_result(self, result):
         """Display Instance C-FIND results."""

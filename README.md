@@ -22,24 +22,23 @@ The project begins with a basic DICOM viewer and gradually expands to image inte
 
 ## Current Status
 
-**Day 21 — Network Cancellation and Timeout Handling Completed**
+**Day 22 — Network Worker Lifecycle Refactoring**
+**Parts 1 and 2 Completed**
 
-- Added cooperative cancellation using `threading.Event`
-- Added a `cancelled` signal to `NetworkWorker`
-- Added the `Cancel Operation` button to the Network tab
-- Disabled the cancel button after the first cancellation request
-- Added cancellation support to all seven DICOM SCU operations
-- Added cancellation checks after Association and during multi-response operations
-- Aborted active Associations safely when cancellation was detected
-- Added a five-second TCP connection timeout
-- Preserved ACSE, DIMSE, and network timeout settings
-- Distinguished user cancellation from connection failure or timeout
-- Restored network controls automatically after cancellation
-- Verified C-ECHO cancellation during a blocked connection attempt
-- Reduced observed cancellation completion from approximately 18 seconds to 1–2 seconds
-- Verified connection failure and timeout reporting
-- Verified successful C-ECHO regression result `0x0000`
-- Next step: **Day 22 — Network Worker Lifecycle Refactoring**
+- Added `start_network_operation()` for shared worker creation,
+  signal connections, control updates, and startup
+- Applied the shared lifecycle to C-ECHO and C-STORE in Part 1
+- Applied the shared lifecycle to Study, Series, and Instance
+  C-FIND in Part 2
+- Prevented new operations until the previous worker cleanup completes
+- Used validated connection settings for all three C-FIND levels
+- Preserved required UID validation and existing result handlers
+- Verified Study search, repeated search, and zero-result handling
+- Verified Series search, repeated search, and missing Study UID validation
+- Verified Instance searches returning three and one instances
+- Verified repeated Instance search and missing UID validation
+- Verified Study connection failure reporting and subsequent retry
+- Next step: **Day 22 Part 3 — C-MOVE and C-GET Worker Lifecycle Refactoring**
 
 ## Features
 
@@ -1400,6 +1399,55 @@ Testing confirmed:
 - Connection failure or timeout is reported without freezing the GUI
 - A running test PACS still returns `C-ECHO Success: 0x0000`
 - All Python source files pass compilation checks
+
+## Day 22 — Network Worker Lifecycle Refactoring
+
+### Part 1 — C-ECHO and C-STORE
+
+Introduced `start_network_operation()` to centralize worker creation,
+signal connections, network control updates, and worker startup.
+
+Applied the shared helper to C-ECHO and C-STORE.
+
+The operation guard checks whether a worker reference still exists,
+preventing a new operation from starting before cleanup completes.
+
+### Part 2 — Hierarchical C-FIND
+
+Applied the shared helper to:
+
+- Study C-FIND
+- Series C-FIND
+- Instance C-FIND
+
+Each search method prepares and validates its inputs, then delegates
+worker startup to the shared helper.
+
+Series and Instance searches now validate connection settings before
+starting. Required UID checks and existing result handlers are preserved.
+
+### Part 2 Verification
+
+| Scenario | Result |
+| -------- | ------ |
+| Study search with `TEST001` | One study |
+| Repeated Study search | One study |
+| Study search with `NOTFOUND` | Zero studies |
+| Series search | Two series |
+| Repeated Series search | Two series |
+| Missing Study UID | Validation message; operation blocked |
+| Instance search for series ending in `2001` | Three instances |
+| Repeated Instance search | Three instances |
+| Instance search for series ending in `2002` | One instance |
+| Missing Series UID | Validation message; operation blocked |
+| Study connection failure | Failure reported; controls restored |
+
+The refactoring removed duplicated lifecycle code from the three
+C-FIND methods, reducing `src/main.py` by a net total of 73 lines.
+
+### Next Step
+
+Apply the shared worker lifecycle to C-MOVE and C-GET in Day 22 Part 3.
 
 ## Disclaimer
 
